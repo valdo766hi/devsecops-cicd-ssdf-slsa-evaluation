@@ -26,6 +26,11 @@ spec:
       targetRevision: HEAD
       ref: values
 
+    # Source 3: ArgoCD manifests
+    - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+      targetRevision: HEAD
+      path: deploy/manifests/argocd
+
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
