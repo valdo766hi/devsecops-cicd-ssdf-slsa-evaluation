@@ -5,5 +5,6 @@ resources:
   # AppProject must be first
   - projects/devsecops-skripsi.yaml
   # Applications
-  - applications/gateway-api.yaml
   - applications/argocd.yaml
+  - applications/argocd-apps.yaml
+  - applications/gateway-api.yaml
