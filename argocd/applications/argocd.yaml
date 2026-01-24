@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/name: argocd
+    environment: development
+    project: devsecops-skripsi
+spec:
+  project: devsecops-skripsi
+
+  sources:
+    # Source 1: Helm chart from argo-helm repository
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-cd
+      targetRevision: 9.3.5
+      helm:
+        valueFiles:
+          - $values/deploy/helm-values/argocd/values.yaml
+    
+    # Source 2: Git repository containing values file
+    - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+      targetRevision: HEAD
+      ref: values
+    
+    # Source 3: App-of-Apps - manages all other applications via Kustomize
+    - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+      targetRevision: HEAD
+      path: argocd
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 8
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

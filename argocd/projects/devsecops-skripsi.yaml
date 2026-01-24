@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: devsecops-skripsi
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: DevSecOps Skripsi Project - SSDF SLSA Evaluation
+  
+  sourceRepos:
+    - '*'
+    
+  destinations:
+    - namespace: '*'
+      server: '*'
+      
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
