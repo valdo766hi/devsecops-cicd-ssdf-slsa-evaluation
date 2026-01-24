@@ -9,7 +9,7 @@ metadata:
 spec:
   parentRefs:
     - name: gateway
-      namespace: argocd
+      namespace: istio-system
   hostnames:
     - "argocd.skripsi.oryzasa.site"
   rules:
