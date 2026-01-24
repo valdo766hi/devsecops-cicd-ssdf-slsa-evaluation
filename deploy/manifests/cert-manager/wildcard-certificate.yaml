@@ -1,0 +1,15 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-skripsi-oryzasa-site
+  namespace: istio-system
+  labels:
+    environment: development
+spec:
+  secretName: wildcard-skripsi-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - "*.skripsi.oryzasa.site"
+    - "skripsi.oryzasa.site"
