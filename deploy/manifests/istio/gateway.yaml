@@ -6,6 +6,7 @@ metadata:
   annotations:
     networking.istio.io/service-type: "NodePort"
     networking.istio.io/service-nodePort.http: "30080"
+    networking.istio.io/service-nodePort.https: "30443"
   labels:
     app: istio-gateway
     environment: development
@@ -19,3 +20,15 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.skripsi.oryzasa.site"
+      allowedRoutes:
+        namespaces:
+          from: All
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: wildcard-skripsi-tls
+            kind: Secret
