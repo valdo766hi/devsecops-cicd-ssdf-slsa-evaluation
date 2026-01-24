@@ -9,4 +9,4 @@ resources:
   - applications/argocd.yaml
   - applications/argocd-apps.yaml
   - applications/gateway-api.yaml
-  - applications/kgateway.yaml
+  - applications/istio.yaml

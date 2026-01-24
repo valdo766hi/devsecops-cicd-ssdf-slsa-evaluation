@@ -1,0 +1,69 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/name: istio
+    environment: development
+    project: devsecops-skripsi
+spec:
+  project: devsecops-skripsi
+
+  sources:
+    # Source 1: Istio base
+    - repoURL: https://istio-release.storage.googleapis.com/charts
+      chart: base
+      targetRevision: 1.28.3
+      helm:
+        releaseName: istio-base
+        valueFiles:
+          - $values/deploy/helm-values/istio/base/values.yaml
+
+    # Source 2: Istiod
+    - repoURL: https://istio-release.storage.googleapis.com/charts
+      chart: istiod
+      targetRevision: 1.28.3
+      helm:
+        releaseName: istiod
+        valueFiles:
+          - $values/deploy/helm-values/istio/istiod/values.yaml
+
+    # Source 3: Istio Gateway
+    - repoURL: https://istio-release.storage.googleapis.com/charts
+      chart: gateway
+      targetRevision: 1.28.3
+      helm:
+        releaseName: istio-gateway
+        valueFiles:
+          - $values/deploy/helm-values/istio/gateway/values.yaml
+
+    # Source 4: Values from Git
+    - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+      targetRevision: HEAD
+      ref: values
+
+    # Source 5: Gateway manifests
+    - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+      targetRevision: HEAD
+      path: deploy/manifests/istio
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 8
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
