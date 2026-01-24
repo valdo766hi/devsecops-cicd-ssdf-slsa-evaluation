@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  labels:
+    app: cert-manager
+    environment: development
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: devsecops-skripsi
+  sources:
+    # Chart of cert-manager
+    - repoURL: oci://quay.io/jetstack/charts
+      chart: cert-manager
+      targetRevision: v1.19.2
+      helm:
+        valueFiles:
+          - $values/deploy/helm-values/cert-manager/values.yaml
+
+    # Source 2: Git repository containing values file
+    - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+      targetRevision: main
+      ref: values
+
+    # Source 3: Manifests
+    - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+      targetRevision: main
+      path: deploy/manifests/cert-manager
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

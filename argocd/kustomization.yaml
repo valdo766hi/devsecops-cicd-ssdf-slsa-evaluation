@@ -10,3 +10,4 @@ resources:
   - applications/argocd-apps.yaml
   - applications/gateway-api.yaml
   - applications/istio.yaml
+  - applications/cert-manager.yaml
