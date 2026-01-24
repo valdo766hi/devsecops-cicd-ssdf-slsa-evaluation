@@ -6,9 +6,6 @@ metadata:
   labels:
     app: kgateway
     environment: development
-  annotations:
-    kgateway.io/service.type: NodePort
-    kgateway.io/service.nodePort.http: "30080"
 spec:
   gatewayClassName: kgateway
   listeners:
