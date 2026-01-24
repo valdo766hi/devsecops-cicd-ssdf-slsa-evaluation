@@ -1,0 +1,55 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kgateway
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/name: kgateway
+    environment: development
+    project: devsecops-skripsi
+spec:
+  project: devsecops-skripsi
+
+  sources:
+    # Source 1: Kgateway CRDs from OCI registry
+    - repoURL: oci://cr.kgateway.dev/kgateway-dev/charts/kgateway-crds
+      chart: kgateway-crds
+      targetRevision: v2.1.2
+
+    # Source 2: Kgateway main chart from OCI registry
+    - repoURL: oci://cr.kgateway.dev/kgateway-dev/charts/kgateway
+      chart: kgateway
+      targetRevision: v2.1.2
+      helm:
+        valueFiles:
+          - $values/deploy/helm-values/kgateway/values.yaml
+
+    # Source 3: Kgateway values from Git
+    - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+      targetRevision: HEAD
+      ref: values
+
+    # Source 4: Gateway manifests (Gateway CRs, etc.)
+    - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+      targetRevision: HEAD
+      path: deploy/manifests/kgateway
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kgateway-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 8
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
