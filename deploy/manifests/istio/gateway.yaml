@@ -4,13 +4,17 @@ metadata:
   name: gateway
   namespace: istio-system
   annotations:
-    networking.istio.io/service-type: "NodePort"
-    networking.istio.io/service-nodePort.https: "30443"
+    networking.istio.io/service-type: NodePort
   labels:
     app: istio-gateway
     environment: development
 spec:
   gatewayClassName: istio
+  infrastructure:
+    parametersRef:
+      group: ""
+      kind: ConfigMap
+      name: gateway-service-config
   listeners:
     - name: https
       protocol: HTTPS
@@ -22,7 +26,7 @@ spec:
       tls:
         mode: Terminate
         certificateRefs:
-          - group: ''
+          - group: ""
             kind: Secret
             name: wildcard-skripsi-tls
             namespace: istio-system

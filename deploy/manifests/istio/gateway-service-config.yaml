@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-service-config
+  namespace: istio-system
+  labels:
+    app: istio-gateway
+    environment: development
+data:
+  service: |
+    spec:
+      type: NodePort
+      ports:
+      - name: status-port
+        port: 15021
+        targetPort: 15021
+        protocol: TCP
+      - name: https
+        port: 443
+        targetPort: 443
+        nodePort: 30443
+        protocol: TCP
