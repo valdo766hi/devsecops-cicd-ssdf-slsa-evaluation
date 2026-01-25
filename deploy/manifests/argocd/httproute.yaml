@@ -16,7 +16,11 @@ spec:
   hostnames:
     - "argocd.skripsi.oryzasa.site"
   rules:
-    - filters:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
         - type: RequestRedirect
           requestRedirect:
             scheme: https
