@@ -15,6 +15,11 @@ data:
         port: 15021
         targetPort: 15021
         protocol: TCP
+      - name: http
+        port: 80
+        targetPort: 80
+        nodePort: 30080
+        protocol: TCP
       - name: https
         port: 443
         targetPort: 443
