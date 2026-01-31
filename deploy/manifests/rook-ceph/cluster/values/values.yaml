@@ -7,8 +7,8 @@ cephClusterSpec:
   dataDirHostPath: /var/lib/rook
   
   cephVersion:
-    image: quay.io/ceph/ceph:v19.2.3
-    allowUnsupported: true
+    image: quay.io/ceph/ceph:v19.2.2
+    allowUnsupported: false
     imagePullPolicy: IfNotPresent
   
   dashboard:
