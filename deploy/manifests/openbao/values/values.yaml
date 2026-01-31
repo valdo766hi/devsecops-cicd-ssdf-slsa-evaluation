@@ -1,0 +1,18 @@
+server:
+  standalone:
+    enabled: false
+  ha:
+    enabled: true
+    replicas: 2
+    raft:
+      enabled: true
+      setNodeId: true
+  dataStorage:
+    enabled: true
+    storageClass: rook-ceph-block
+    accessMode: ReadWriteOnce
+    size: 10Gi
+
+ui:
+  enabled: true
+  serviceType: "ClusterIP"

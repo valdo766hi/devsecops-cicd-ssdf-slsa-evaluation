@@ -1,0 +1,24 @@
+name: openbao
+project: devsecops-skripsi
+namespace: openbao
+sync:
+  automated: true
+  prune: false
+  selfHeal: true
+  createNamespace: true
+labels:
+  app.kubernetes.io/part-of: infrastructure
+  app.kubernetes.io/component: openbao
+sources:
+  - repoURL: https://openbao.github.io/openbao-helm
+    chart: openbao
+    targetRevision: 0.23.3
+    helm:
+      valueFiles:
+        - $values/deploy/manifests/openbao/values/values.yaml
+  - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+    targetRevision: HEAD
+    ref: values
+  - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+    targetRevision: HEAD
+    path: deploy/manifests/openbao
