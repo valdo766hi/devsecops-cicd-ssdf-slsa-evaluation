@@ -5,3 +5,4 @@ resources:
   - istio-system.yaml
   - cert-manager.yaml
   - rook-ceph.yaml
+  - openbao.yaml
