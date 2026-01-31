@@ -3,7 +3,7 @@ server:
     enabled: false
   ha:
     enabled: true
-    replicas: 2
+    replicas: 1
     raft:
       enabled: true
       setNodeId: true
@@ -12,6 +12,13 @@ server:
     storageClass: rook-ceph-block
     accessMode: ReadWriteOnce
     size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 ui:
   enabled: true
