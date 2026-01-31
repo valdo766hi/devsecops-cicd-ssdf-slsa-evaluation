@@ -1,0 +1,15 @@
+name: gateway-api
+project: devsecops-skripsi
+namespace: default
+sync:
+  automated: true
+  prune: true
+  selfHeal: true
+  createNamespace: true
+labels:
+  app.kubernetes.io/part-of: infrastructure
+  app.kubernetes.io/component: gateway-api
+sources:
+  - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+    targetRevision: HEAD
+    path: crds/gateway-api/standard

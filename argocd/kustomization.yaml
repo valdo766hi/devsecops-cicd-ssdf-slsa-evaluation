@@ -4,10 +4,5 @@ kind: Kustomization
 resources:
   # AppProject must be first
   - projects/devsecops-skripsi.yaml
-  # Applications (ordered by dependency)
-  - applications/namespaces.yaml
-  - applications/argocd.yaml
-  - applications/argocd-apps.yaml
-  - applications/gateway-api.yaml
-  - applications/istio.yaml
-  - applications/cert-manager.yaml
+  # ApplicationSet - generates all applications
+  - appsets/applicationsets.yaml

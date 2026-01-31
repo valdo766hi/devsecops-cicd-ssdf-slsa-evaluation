@@ -1,0 +1,24 @@
+name: cert-manager
+project: devsecops-skripsi
+namespace: cert-manager
+sync:
+  automated: true
+  prune: true
+  selfHeal: true
+  createNamespace: false
+labels:
+  app.kubernetes.io/part-of: infrastructure
+  app.kubernetes.io/component: cert-manager
+sources:
+  - repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.19.2
+    helm:
+      valueFiles:
+        - $values/deploy/manifests/cert-manager/values/values.yaml
+  - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+    targetRevision: HEAD
+    ref: values
+  - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+    targetRevision: HEAD
+    path: deploy/manifests/cert-manager

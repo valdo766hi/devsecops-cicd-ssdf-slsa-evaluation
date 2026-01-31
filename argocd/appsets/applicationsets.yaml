@@ -1,0 +1,56 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: infrastructure-appset
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/name: infrastructure-appset
+    app.kubernetes.io/part-of: infrastructure
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+        revision: HEAD
+        files:
+          - path: "deploy/manifests/**/app.yaml"
+  template:
+    metadata:
+      name: "{{ .name }}"
+      namespace: argocd
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+      labels:
+        app.kubernetes.io/name: "{{ .name }}"
+        app.kubernetes.io/part-of: "{{ index .labels \"app.kubernetes.io/part-of\" }}"
+        app.kubernetes.io/component: "{{ index .labels \"app.kubernetes.io/component\" }}"
+        managed-by: applicationset
+    spec:
+      project: devsecops-skripsi
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{ .namespace }}"
+  templatePatch: |
+    spec:
+      sources: {{ .sources | toJson }}
+      {{- if .ignoreDifferences }}
+      ignoreDifferences: {{ .ignoreDifferences | toJson }}
+      {{- end }}
+      syncPolicy:
+        {{- if .sync.automated }}
+        automated:
+          prune: {{ .sync.prune }}
+          selfHeal: {{ .sync.selfHeal }}
+        {{- end }}
+        retry:
+          limit: 8
+          backoff:
+            duration: 15s
+            factor: 2
+            maxDuration: 5m
+        syncOptions:
+          - CreateNamespace={{ .sync.createNamespace }}
+          - ServerSideApply=true
