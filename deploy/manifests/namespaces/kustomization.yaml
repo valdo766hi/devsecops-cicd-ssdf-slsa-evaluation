@@ -7,3 +7,4 @@ resources:
   - rook-ceph.yaml
   - openbao.yaml
   - external-secrets.yaml
+  - trivy-operator.yaml
