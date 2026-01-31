@@ -7,3 +7,16 @@ operator:
     limits:
       cpu: 500m
       memory: 500Mi
+  scanJobsConcurrentLimit: 3
+  scanJobTimeout: 10m
+  builtInTrivyServer: true
+
+trivy:
+  mode: ClientServer
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
