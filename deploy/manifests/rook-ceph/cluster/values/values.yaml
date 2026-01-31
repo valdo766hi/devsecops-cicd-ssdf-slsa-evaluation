@@ -23,6 +23,13 @@ cephClusterSpec:
       osdsPerDevice: "1"
       encryptedDevice: "false"
     nodes: []
+    # Force clean data on disk when deleting OSDs
+    cleanupPolicy:
+      deleteDataDirOnHosts: all
+      sanitizeDisks:
+        method: quick
+        dataSource: zero
+        iteration: 1
   mon:
     count: 1
     allowMultiplePerNode: true
