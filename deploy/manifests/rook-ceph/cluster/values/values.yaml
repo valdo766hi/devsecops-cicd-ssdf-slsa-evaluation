@@ -5,6 +5,8 @@ monitoring:
   enabled: false
 pspEnable: false
 cephClusterSpec:
+  cephVersion:
+    imagePullPolicy: IfNotPresent
   mgr:
     count: 1
   mon:
