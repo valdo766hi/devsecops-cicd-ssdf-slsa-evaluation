@@ -6,3 +6,4 @@ resources:
   - cert-manager.yaml
   - rook-ceph.yaml
   - openbao.yaml
+  - external-secrets.yaml
