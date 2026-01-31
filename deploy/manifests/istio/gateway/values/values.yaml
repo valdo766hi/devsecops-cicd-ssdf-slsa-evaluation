@@ -11,3 +11,5 @@ service:
       protocol: TCP
       targetPort: 80
       nodePort: 30080
+
+image: docker.io/istio/proxyv2:1.28.3
