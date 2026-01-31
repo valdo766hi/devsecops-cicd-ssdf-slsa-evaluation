@@ -5,6 +5,12 @@ monitoring:
 
 cephClusterSpec:
   dataDirHostPath: /var/lib/rook
+  
+  cephVersion:
+    image: quay.io/ceph/ceph:v19.2.3
+    allowUnsupported: false
+    imagePullPolicy: IfNotPresent
+  
   dashboard:
     enabled: true
     ssl: false
@@ -126,4 +132,4 @@ cephFileSystems: []
 cephObjectStores: []
 
 toolbox:
-  enabled: true
+  enabled: false
