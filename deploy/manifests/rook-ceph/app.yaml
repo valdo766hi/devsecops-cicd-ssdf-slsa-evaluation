@@ -17,13 +17,13 @@ sources:
       releaseName: rook-ceph
       valueFiles:
         - $values/deploy/manifests/rook-ceph/operator/values/values.yaml
-  # - repoURL: https://charts.rook.io/release
-  #   chart: rook-ceph-cluster
-  #   targetRevision: v1.19.0
-  #   helm:
-  #     releaseName: rook-ceph-cluster
-  #     valueFiles:
-  #       - $values/deploy/manifests/rook-ceph/cluster/values/values.yaml
+  - repoURL: https://charts.rook.io/release
+    chart: rook-ceph-cluster
+    targetRevision: v1.19.0
+    helm:
+      releaseName: rook-ceph-cluster
+      valueFiles:
+        - $values/deploy/manifests/rook-ceph/cluster/values/values.yaml
   - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
     targetRevision: HEAD
     ref: values
