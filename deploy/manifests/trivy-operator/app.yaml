@@ -1,0 +1,20 @@
+name: trivy-operator
+project: devsecops-skripsi
+namespace: trivy-system
+sync:
+  automated: true
+  prune: false
+  selfHeal: true
+  createNamespace: true
+labels:
+  app.kubernetes.io/part-of: infrastructure
+  app.kubernetes.io/component: trivy-operator
+sources:
+  - repoURL: oci://ghcr.io/aquasecurity/helm-charts/trivy-operator
+    targetRevision: 0.31.0
+    helm:
+      valueFiles:
+        - $values/deploy/manifests/trivy-operator/values/values.yaml
+  - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+    targetRevision: HEAD
+    ref: values
