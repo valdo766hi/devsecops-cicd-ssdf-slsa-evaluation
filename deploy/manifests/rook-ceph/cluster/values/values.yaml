@@ -16,13 +16,17 @@ cephClusterSpec:
     ssl: false
     port: 7000
   storage:
-    useAllNodes: true
+    useAllNodes: false
     useAllDevices: false
-    deviceFilter: "^vdb$"
     config:
       osdsPerDevice: "1"
       encryptedDevice: "false"
-    nodes: []
+    nodes:
+      - name: "valdo-skripsi-kube"
+        devices:
+          - name: "vdc"
+            config:
+              osdsPerDevice: "1"
   mon:
     count: 1
     allowMultiplePerNode: true
