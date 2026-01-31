@@ -4,4 +4,4 @@ kind: Kustomization
 resources:
   - istio-system.yaml
   - cert-manager.yaml
-  - rook-ceph.yaml
+  # - rook-ceph.yaml  # Disabled for manual disk cleanup
