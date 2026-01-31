@@ -1,0 +1,32 @@
+name: rook-ceph
+project: devsecops-skripsi
+namespace: rook-ceph
+sync:
+  automated: false
+  prune: false
+  selfHeal: false
+  createNamespace: true
+labels:
+  app.kubernetes.io/part-of: infrastructure
+  app.kubernetes.io/component: rook-ceph
+sources:
+  - repoURL: https://charts.rook.io/release
+    chart: rook-ceph
+    targetRevision: v1.19.0
+    helm:
+      releaseName: rook-ceph
+      valueFiles:
+        - $values/deploy/manifests/rook-ceph/operator/values/values.yaml
+  # - repoURL: https://charts.rook.io/release
+  #   chart: rook-ceph-cluster
+  #   targetRevision: v1.19.0
+  #   helm:
+  #     releaseName: rook-ceph-cluster
+  #     valueFiles:
+  #       - $values/deploy/manifests/rook-ceph/cluster/values/values.yaml
+  - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+    targetRevision: HEAD
+    ref: values
+  - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+    targetRevision: HEAD
+    path: deploy/manifests/rook-ceph
