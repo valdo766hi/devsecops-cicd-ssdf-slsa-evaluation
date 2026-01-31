@@ -11,6 +11,7 @@ labels:
   app.kubernetes.io/component: trivy-operator
 sources:
   - repoURL: oci://ghcr.io/aquasecurity/helm-charts/trivy-operator
+    chart: trivy-operator
     targetRevision: 0.31.0
     helm:
       valueFiles:
