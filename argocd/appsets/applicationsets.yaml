@@ -36,11 +36,11 @@ spec:
   templatePatch: |
     spec:
       sources: {{ .sources | toJson }}
-      {{- if .ignoreDifferences }}
+      {{- if hasKey . "ignoreDifferences" }}
       ignoreDifferences: {{ .ignoreDifferences | toJson }}
       {{- end }}
       syncPolicy:
-        {{- if .sync.automated }}
+        {{- if and (hasKey .sync "automated") .sync.automated }}
         automated:
           prune: {{ .sync.prune }}
           selfHeal: {{ .sync.selfHeal }}
