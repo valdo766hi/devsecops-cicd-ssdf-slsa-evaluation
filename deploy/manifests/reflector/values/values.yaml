@@ -1,0 +1,52 @@
+# Kubernetes Reflector Helm Values
+# https://github.com/emberstack/kubernetes-reflector
+
+# Image configuration
+image:
+  repository: ghcr.io/emberstack/kubernetes-reflector
+  pullPolicy: IfNotPresent
+  # tag: defaults to chart appVersion
+
+# Logging configuration
+configuration:
+  logging:
+    minimumLevel: Information
+
+# RBAC configuration
+rbac:
+  enabled: true
+
+# Service account
+serviceAccount:
+  create: true
+  # name: reflector
+
+# Resource limits
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# Probes
+livenessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+readinessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# Node selector (optional)
+nodeSelector: {}
+
+# Tolerations (optional)
+tolerations: []
+
+# Affinity (optional)
+affinity: {}
+
+# Priority class (optional)
+priorityClassName: ""

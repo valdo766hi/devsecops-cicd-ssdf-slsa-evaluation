@@ -1,0 +1,21 @@
+name: reloader
+project: devsecops-skripsi
+namespace: kube-system
+sync:
+  automated: true
+  prune: false
+  selfHeal: true
+  createNamespace: false
+labels:
+  app.kubernetes.io/part-of: infrastructure
+  app.kubernetes.io/component: reloader
+sources:
+  - repoURL: https://stakater.github.io/stakater-charts
+    chart: reloader
+    targetRevision: 1.2.1
+    helm:
+      valueFiles:
+        - $values/deploy/manifests/reloader/values/values.yaml
+  - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+    targetRevision: HEAD
+    ref: values

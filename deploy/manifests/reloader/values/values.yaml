@@ -1,0 +1,90 @@
+# Stakater Reloader Helm Values
+# https://github.com/stakater/Reloader
+
+reloader:
+  # Reload strategy: env-vars (default) or annotations
+  reloadStrategy: default
+
+  # Reload on create/delete events
+  reloadOnCreate: true
+  reloadOnDelete: true
+
+  # Sync after pod restart
+  syncAfterRestart: false
+
+  # Auto reload all resources (use annotations instead for control)
+  autoReloadAll: false
+
+  # Ignore specific resources
+  ignoreSecrets: false
+  ignoreConfigMaps: false
+
+  # Namespaces configuration
+  # Empty = watch all namespaces
+  watchGlobally: true
+  # namespaceSelector: ""
+  # namespacesToIgnore: ""
+
+  # Resource label selector (empty = all resources)
+  # resourceLabelSelector: ""
+
+  # Ignored workload types (comma-separated)
+  # ignoredWorkloadTypes: ""
+
+  # Deployment configuration
+  deployment:
+    replicas: 1
+
+    # Resources
+    resources:
+      requests:
+        cpu: 10m
+        memory: 128Mi
+      limits:
+        cpu: 100m
+        memory: 256Mi
+
+    # Pod configuration
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+    # Security context
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65534
+
+    # Container security context
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+
+  # Service account
+  serviceAccount:
+    create: true
+    # name: reloader
+
+  # RBAC
+  rbac:
+    create: true
+
+  # Pod monitor for Prometheus (optional)
+  podMonitor:
+    enabled: false
+
+  # Logging
+  logFormat: json
+
+  # Readiness/Liveness
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 10
