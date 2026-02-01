@@ -64,6 +64,8 @@ This repository implements Infrastructure-as-Code (IaC) using **ArgoCD Applicati
 | **OpenBao** | Secrets management (Vault alternative) | ✅ Active |
 | **External Secrets** | Kubernetes external secrets integration | ✅ Active |
 | **Trivy Operator** | Container vulnerability scanning | ✅ Active |
+| **Reflector** | Secret/ConfigMap replication across namespaces | ✅ Active |
+| **Reloader** | Auto-restart pods on ConfigMap/Secret changes | ✅ Active |
 
 ## Repository Structure
 
@@ -103,7 +105,13 @@ This repository implements Infrastructure-as-Code (IaC) using **ArgoCD Applicati
 │       │   ├── app.yaml
 │       │   ├── values/
 │       │   └── test-external-secret.yaml
-│       └── trivy-operator/      # Vulnerability scanning
+│       ├── trivy-operator/      # Vulnerability scanning
+│       │   ├── app.yaml
+│       │   └── values/
+│       ├── reflector/           # Secret/ConfigMap replication
+│       │   ├── app.yaml
+│       │   └── values/
+│       └── reloader/            # Auto-restart on config changes
 │           ├── app.yaml
 │           └── values/
 │
@@ -336,6 +344,8 @@ This repository implements DevSecOps practices:
 | OpenBao Secrets | ✅ Active |
 | External Secrets | ✅ Active |
 | Trivy Operator | ✅ Active |
+| Reflector | ✅ Active |
+| Reloader | ✅ Active |
 | GitHub Actions CI/CD | 📋 Planned |
 | crAPI Test Application | 📋 Planned |
 | SLSA Provenance | 📋 Planned |
@@ -379,5 +389,7 @@ This project is part of a thesis research on DevSecOps CI/CD pipeline security e
 - [OpenBao](https://openbao.org/docs/)
 - [External Secrets](https://external-secrets.io/latest/)
 - [Trivy Operator](https://aquasecurity.github.io/trivy-operator/latest/)
+- [Reflector](https://github.com/emberstack/kubernetes-reflector)
+- [Reloader](https://github.com/stakater/Reloader)
 - [NIST SSDF](https://csrc.nist.gov/publications/detail/sp/800-218/final)
 - [SLSA Framework](https://slsa.dev/)
