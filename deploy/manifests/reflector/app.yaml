@@ -10,8 +10,7 @@ labels:
   app.kubernetes.io/part-of: infrastructure
   app.kubernetes.io/component: reflector
 sources:
-  - repoURL: oci://ghcr.io/emberstack/helm-charts
-    chart: reflector
+  - repoURL: oci://ghcr.io/emberstack/helm-charts/reflector
     targetRevision: 7.1.288
     helm:
       valueFiles:
