@@ -54,3 +54,60 @@ spec:
           name: crapi-web
           port: 80
           weight: 1
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mailhog-http
+  namespace: crapi
+  labels:
+    app: mailhog
+    environment: development
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: gateway
+      namespace: istio-system
+      sectionName: http
+  hostnames:
+    - "mailhog.skripsi.oryzasa.site"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mailhog-https
+  namespace: crapi
+  labels:
+    app: mailhog
+    environment: development
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: gateway
+      namespace: istio-system
+      sectionName: https
+  hostnames:
+    - "mailhog.skripsi.oryzasa.site"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: ''
+          kind: Service
+          name: mailhog-web
+          port: 8025
+          weight: 1
