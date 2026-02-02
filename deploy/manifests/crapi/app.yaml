@@ -1,0 +1,23 @@
+name: crapi
+project: devsecops-skripsi
+namespace: crapi
+sync:
+  automated: true
+  prune: false
+  selfHeal: true
+  createNamespace: true
+labels:
+  app.kubernetes.io/part-of: infrastructure
+  app.kubernetes.io/component: crapi
+sources:
+  - repoURL: https://github.com/OWASP/crAPI.git
+    targetRevision: develop
+    path: deploy/helm
+    helm:
+      releaseName: crapi
+      valueFiles:
+  # Uncomment when need override values
+  #       - $values/deploy/manifests/crapi/values/values.yaml
+  # - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+  #   targetRevision: HEAD
+  #   ref: values
