@@ -1,0 +1,54 @@
+openAIApiKey: ""
+web:
+  service:
+    type: ClusterIP
+    nodePort: null
+    sslNodePort: null
+mailhog:
+  webService:
+    type: ClusterIP
+    nodePort: null
+mongodb:
+  storage:
+    type: "default"
+    pvc:
+      name: mongodb-pv-claim
+      storageClassName: rook-ceph-block
+      labels:
+        app: mongodb
+      resources:
+        requests:
+          storage: 2Gi
+postgresdb:
+  storage:
+    type: "default"
+    pvc:
+      name: postgres-pv-claim
+      storageClassName: rook-ceph-block
+      labels:
+        app: postgresdb
+      resources:
+        requests:
+          storage: 2Gi
+chromadb:
+  storage:
+    type: "default"
+    pvc:
+      name: chromadb-pv-claim
+      storageClassName: rook-ceph-block
+      labels:
+        app: chromadb
+      resources:
+        requests:
+          storage: 2Gi
+chatbot:
+  storage:
+    type: "default"
+    pvc:
+      name: chatbot-vectors-pv-claim
+      storageClassName: rook-ceph-block
+      labels:
+        app: crapi-chatbot
+      resources:
+        requests:
+          storage: 1Gi

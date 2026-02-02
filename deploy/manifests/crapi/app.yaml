@@ -16,8 +16,10 @@ sources:
     helm:
       releaseName: crapi
       valueFiles:
-  # Uncomment when need override values
-  #       - $values/deploy/manifests/crapi/values/values.yaml
-  # - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
-  #   targetRevision: HEAD
-  #   ref: values
+        - $values/deploy/manifests/crapi/values/values.yaml
+  - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+    targetRevision: HEAD
+    ref: values
+  - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+    targetRevision: HEAD
+    path: deploy/manifests/crapi
