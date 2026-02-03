@@ -1,29 +1,21 @@
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: kyverno
-  namespace: argocd 
-  labels:
-    app.kubernetes.io/part-of: infrastructure
-    app.kubernetes.io/component: policy-engine
-spec:
-  project: devsecops-skripsi
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: kyverno
-  sources:
-    - repoURL: oci://ghcr.io/kyverno/charts/kyverno
-      chart: kyverno
-      targetRevision: 3.2.6
-      helm:
-        valueFiles:
-          - $values/deploy/manifests/kyverno/values/values.yaml
-    - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
-      targetRevision: HEAD
-      ref: values
-  syncPolicy:
-    automated:
-      prune: false
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
+name: kyverno
+project: devsecops-skripsi
+namespace: kyverno
+sync:
+  automated: true
+  prune: false
+  selfHeal: true
+  createNamespace: true
+labels:
+  app.kubernetes.io/part-of: infrastructure
+  app.kubernetes.io/component: kyverno
+sources:
+  - repoURL: oci://ghcr.io/kyverno/charts/kyverno
+    chart: kyverno
+    targetRevision: 3.2.6
+    helm:
+      valueFiles:
+        - $values/deploy/manifests/kyverno/values/values.yaml
+  - repoURL: git@github.com:valdo766hi/devsecops-cicd-ssdf-slsa-evaluation.git
+    targetRevision: HEAD
+    ref: values
