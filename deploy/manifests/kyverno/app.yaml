@@ -3,7 +3,7 @@ project: devsecops-skripsi
 namespace: kyverno
 sync:
   automated: true
-  prune: false
+  prune: true
   selfHeal: true
   createNamespace: true
 labels:
