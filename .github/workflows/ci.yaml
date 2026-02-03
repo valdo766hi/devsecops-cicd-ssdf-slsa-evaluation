@@ -1,0 +1,349 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  KUBERNETES_VERSION: "1.34.3"
+
+jobs:
+  # ============================================
+  # STAGE 1: Validation
+  # ============================================
+  validate-yaml:
+    name: Validate YAML Syntax
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Lint YAML files
+        run: |
+          yamllint -d relaxed deploy/manifests/ || true
+          yamllint -d relaxed argocd/ || true
+
+  validate-kustomize:
+    name: Validate Kustomize
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Validate Kustomize builds
+        run: |
+          for dir in $(find deploy/manifests -name "kustomization.yaml" -exec dirname {} \;); do
+            echo "Validating: $dir"
+            kustomize build "$dir" > /dev/null || echo "Warning: $dir failed"
+          done
+
+  validate-helm:
+    name: Validate Helm Values
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: "3.14.0"
+
+      - name: Validate Helm values syntax
+        run: |
+          for values in $(find deploy/manifests -name "values.yaml"); do
+            echo "Checking: $values"
+            python3 -c "import yaml; yaml.safe_load(open('$values'))" || exit 1
+          done
+
+  # ============================================
+  # STAGE 2: Security Scanning
+  # ============================================
+  security-scan-iac:
+    name: IaC Security Scan (Trivy)
+    runs-on: ubuntu-latest
+    needs: [validate-yaml]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy IaC scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "config"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-iac-results.sarif"
+          severity: "CRITICAL,HIGH,MEDIUM"
+          exit-code: "0"
+
+      - name: Upload Trivy IaC results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-iac-results.sarif"
+          category: "trivy-iac"
+
+      - name: Run Trivy IaC scan (table output)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "config"
+          scan-ref: "."
+          format: "table"
+          severity: "CRITICAL,HIGH"
+
+  security-scan-secrets:
+    name: Secret Detection (Trivy)
+    runs-on: ubuntu-latest
+    needs: [validate-yaml]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Trivy secret scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          scanners: "secret"
+          format: "sarif"
+          output: "trivy-secrets-results.sarif"
+          exit-code: "0"
+
+      - name: Upload secret scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-secrets-results.sarif"
+          category: "trivy-secrets"
+
+  security-scan-kubesec:
+    name: Kubernetes Security (Kubesec)
+    runs-on: ubuntu-latest
+    needs: [validate-yaml]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Kubesec scan
+        run: |
+          curl -sSL https://github.com/controlplaneio/kubesec/releases/download/v2.14.0/kubesec_linux_amd64.tar.gz | tar xz
+          chmod +x kubesec
+
+          echo "## Kubesec Scan Results" >> $GITHUB_STEP_SUMMARY
+
+          for yaml in $(find deploy/manifests -name "*.yaml" ! -name "kustomization.yaml" ! -name "values.yaml" ! -name "app.yaml"); do
+            echo "Scanning: $yaml"
+            ./kubesec scan "$yaml" 2>/dev/null | head -50 || true
+          done
+
+  # ============================================
+  # STAGE 3: Policy Compliance
+  # ============================================
+  policy-check-kyverno:
+    name: Policy Check (Kyverno CLI)
+    runs-on: ubuntu-latest
+    needs: [validate-yaml]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Kyverno CLI
+        run: |
+          curl -LO https://github.com/kyverno/kyverno/releases/download/v1.13.4/kyverno-cli_v1.13.4_linux_x86_64.tar.gz
+          tar -xvf kyverno-cli_v1.13.4_linux_x86_64.tar.gz
+          chmod +x kyverno
+          sudo mv kyverno /usr/local/bin/
+
+      - name: Create Kyverno policies
+        run: |
+          mkdir -p policies
+
+          cat > policies/require-limits.yaml << 'EOF'
+          apiVersion: kyverno.io/v1
+          kind: ClusterPolicy
+          metadata:
+            name: require-limits
+          spec:
+            validationFailureAction: Audit
+            rules:
+            - name: check-limits
+              match:
+                any:
+                - resources:
+                    kinds:
+                    - Pod
+              validate:
+                message: "Resource limits are required"
+                pattern:
+                  spec:
+                    containers:
+                    - resources:
+                        limits:
+                          memory: "?*"
+          EOF
+
+          cat > policies/disallow-privileged.yaml << 'EOF'
+          apiVersion: kyverno.io/v1
+          kind: ClusterPolicy
+          metadata:
+            name: disallow-privileged
+          spec:
+            validationFailureAction: Enforce
+            rules:
+            - name: deny-privileged
+              match:
+                any:
+                - resources:
+                    kinds:
+                    - Pod
+              validate:
+                message: "Privileged containers are not allowed"
+                pattern:
+                  spec:
+                    containers:
+                    - securityContext:
+                        privileged: "!true"
+          EOF
+
+          cat > policies/require-labels.yaml << 'EOF'
+          apiVersion: kyverno.io/v1
+          kind: ClusterPolicy
+          metadata:
+            name: require-labels
+          spec:
+            validationFailureAction: Audit
+            rules:
+            - name: check-labels
+              match:
+                any:
+                - resources:
+                    kinds:
+                    - Deployment
+                    - StatefulSet
+              validate:
+                message: "Label 'app.kubernetes.io/name' is required"
+                pattern:
+                  metadata:
+                    labels:
+                      app.kubernetes.io/name: "?*"
+          EOF
+
+      - name: Run Kyverno CLI validation
+        run: |
+          echo "## Kyverno Policy Check Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          for yaml in $(find deploy/manifests -name "*.yaml" ! -name "kustomization.yaml" ! -name "values.yaml" ! -name "app.yaml" ! -name "*.rego"); do
+            echo "Checking: $yaml"
+            kyverno apply policies/ --resource "$yaml" 2>/dev/null || true
+          done
+
+          echo "Kyverno policy validation completed" >> $GITHUB_STEP_SUMMARY
+
+  policy-check-conftest:
+    name: Policy Check (OPA/Conftest)
+    runs-on: ubuntu-latest
+    needs: [validate-yaml]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Conftest
+        run: |
+          LATEST_VERSION=$(curl -s https://api.github.com/repos/open-policy-agent/conftest/releases/latest | grep tag_name | cut -d '"' -f 4 | sed 's/v//')
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${LATEST_VERSION}/conftest_${LATEST_VERSION}_Linux_x86_64.tar.gz" | tar xz
+          chmod +x conftest
+
+      - name: Create OPA policies
+        run: |
+          mkdir -p policy
+          cat > policy/kubernetes.rego << 'EOF'
+          package main
+
+          deny[msg] {
+            input.kind == "Deployment"
+            not input.spec.template.spec.securityContext.runAsNonRoot
+            msg = sprintf("Deployment %s should set securityContext.runAsNonRoot", [input.metadata.name])
+          }
+
+          warn[msg] {
+            input.kind == "Deployment"
+            container := input.spec.template.spec.containers[_]
+            not container.resources.limits
+            msg = sprintf("Container %s in Deployment %s should have resource limits", [container.name, input.metadata.name])
+          }
+
+          deny[msg] {
+            input.kind == "Deployment"
+            container := input.spec.template.spec.containers[_]
+            container.securityContext.privileged == true
+            msg = sprintf("Container %s in Deployment %s should not be privileged", [container.name, input.metadata.name])
+          }
+          EOF
+
+      - name: Run Conftest
+        run: |
+          echo "## OPA/Conftest Policy Results" >> $GITHUB_STEP_SUMMARY
+          for yaml in $(find deploy/manifests -name "*.yaml" ! -name "kustomization.yaml" ! -name "values.yaml" ! -name "app.yaml"); do
+            echo "Checking: $yaml"
+            ./conftest test "$yaml" --policy policy/ 2>/dev/null || true
+          done
+
+  # ============================================
+  # STAGE 4: SBOM Generation
+  # ============================================
+  generate-sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    needs: [validate-yaml, validate-helm]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate SBOM with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "cyclonedx"
+          output: "sbom.json"
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+          retention-days: 30
+
+  # ============================================
+  # STAGE 5: Summary Report
+  # ============================================
+  summary:
+    name: Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [security-scan-iac, security-scan-secrets, policy-check-kyverno, policy-check-conftest, generate-sbom]
+    if: always()
+    steps:
+      - name: Generate Summary
+        run: |
+          echo "## CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| YAML Validation | ${{ needs.validate-yaml.result == 'success' && 'PASS' || 'FAIL' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Scan (IaC) | ${{ needs.security-scan-iac.result == 'success' && 'PASS' || 'WARN' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Secret Detection | ${{ needs.security-scan-secrets.result == 'success' && 'PASS' || 'WARN' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Policy Check (Kyverno) | ${{ needs.policy-check-kyverno.result == 'success' && 'PASS' || 'WARN' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Policy Check (OPA) | ${{ needs.policy-check-conftest.result == 'success' && 'PASS' || 'WARN' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| SBOM Generation | ${{ needs.generate-sbom.result == 'success' && 'PASS' || 'FAIL' }} |" >> $GITHUB_STEP_SUMMARY

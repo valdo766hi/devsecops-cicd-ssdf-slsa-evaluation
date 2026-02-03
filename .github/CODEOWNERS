@@ -1,0 +1,16 @@
+# Code Owners for DevSecOps CI/CD Repository
+# These owners will be requested for review when someone opens a pull request
+
+# Default owners for everything in the repo
+* @valdo766hi
+
+# Infrastructure configurations
+/deploy/manifests/ @valdo766hi
+/argocd/ @valdo766hi
+
+# Security-sensitive files
+/.github/workflows/ @valdo766hi
+/.github/dependabot.yml @valdo766hi
+
+# CRDs
+/crds/ @valdo766hi
