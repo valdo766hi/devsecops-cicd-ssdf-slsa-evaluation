@@ -1,6 +1,10 @@
 name: Build crAPI Images
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/crapi/services/**"
   workflow_dispatch:
     inputs:
       version:
@@ -11,8 +15,6 @@ on:
 env:
   REGISTRY: ghcr.io
   REPO_OWNER: ${{ github.repository_owner }}
-  CRAPI_REPO: https://github.com/${{ github.repository_owner }}/crAPI.git
-  CRAPI_BRANCH: main
 
 jobs:
   build:
@@ -27,20 +29,19 @@ jobs:
         include:
           - service: identity
             image: crapi-identity
-            context: services/identity
+            context: apps/crapi/services/identity
           - service: community
             image: crapi-community
-            context: services/community
+            context: apps/crapi/services/community
           - service: workshop
             image: crapi-workshop
-            context: services/workshop
+            context: apps/crapi/services/workshop
           - service: web
             image: crapi-web
-            context: services/web
+            context: apps/crapi/services/web
     steps:
-      - name: Clone crAPI repository
-        run: |
-          git clone --depth 1 --branch ${{ env.CRAPI_BRANCH }} ${{ env.CRAPI_REPO }} crapi
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -64,15 +65,15 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: crapi/${{ matrix.context }}
+          context: ${{ matrix.context }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  update-scan:
-    name: Trigger Container Scan
+  summary:
+    name: Build Summary
     runs-on: ubuntu-latest
     needs: build
     steps:
