@@ -2,9 +2,10 @@ name: Build crAPI Images
 
 on:
   push:
-    branches: [main]
+    branches: [main, f/create-the-ci-for-slsa-evaluation]
     paths:
       - "apps/crapi/services/**"
+      - ".github/workflows/build-crapi.yaml"
   workflow_dispatch:
     inputs:
       version:
