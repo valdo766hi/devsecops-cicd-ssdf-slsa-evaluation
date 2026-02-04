@@ -1,8 +1,6 @@
 name: Build crAPI Images
 
 on:
-  schedule:
-    - cron: "0 0 * * 0"  # Weekly on Sunday
   workflow_dispatch:
     inputs:
       version:
@@ -13,8 +11,8 @@ on:
 env:
   REGISTRY: ghcr.io
   REPO_OWNER: ${{ github.repository_owner }}
-  CRAPI_REPO: https://github.com/OWASP/crAPI.git
-  CRAPI_BRANCH: develop
+  CRAPI_REPO: https://github.com/${{ github.repository_owner }}/crAPI.git
+  CRAPI_BRANCH: main
 
 jobs:
   build:
