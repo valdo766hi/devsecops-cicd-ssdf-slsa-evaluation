@@ -2,12 +2,17 @@ name: Publish Helm Chart
 
 on:
   push:
-    branches: [f/create-the-ci-for-slsa-evaluation]
+    tags: ["crapi-*"]
+    # To publish on branch pushes, add:
+    # branches: [f/create-the-ci-for-slsa-evaluation]
+    # paths:
+    #   - "charts/crapi/**"
+    #   - ".github/workflows/helm-chart.yaml"
+  pull_request:
+    branches: [main]
     paths:
       - "charts/crapi/**"
       - ".github/workflows/helm-chart.yaml"
-    # tags: ["v*"]
-    # Enable tags when ready to publish releases.
 
 env:
   REGISTRY: ghcr.io
@@ -15,31 +20,9 @@ env:
   CHART_PATH: charts/crapi
 
 jobs:
-  changes:
-    name: Detect Changes
-    runs-on: ubuntu-latest
-    outputs:
-      chart: ${{ steps.filter.outputs.chart }}
-      workflow: ${{ steps.filter.outputs.workflow }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Filter paths
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            chart:
-              - 'charts/crapi/**'
-            workflow:
-              - '.github/workflows/helm-chart.yaml'
-
   check:
     name: Lint and Scan
     runs-on: ubuntu-latest
-    needs: changes
-    if: needs.changes.outputs.chart == 'true' || needs.changes.outputs.workflow == 'true'
     permissions:
       contents: read
     steps:
@@ -71,11 +54,8 @@ jobs:
   publish:
     name: Package and Push
     runs-on: ubuntu-latest
-    needs: [changes, check]
-    # Temporary: allow publish even when workflow changes.
-    # To disable publish on workflow updates, add:
-    # && needs.changes.outputs.workflow != 'true'
-    if: needs.changes.outputs.chart == 'true'
+    needs: [check]
+    if: github.event_name == 'push'
     permissions:
       contents: read
       packages: write
