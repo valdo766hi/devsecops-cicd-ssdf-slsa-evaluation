@@ -1,0 +1,71 @@
+name: Security - IaC Scan
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  trivy-config:
+    name: Trivy IaC
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: .
+          format: sarif
+          output: trivy-iac.sarif
+          severity: CRITICAL,HIGH,MEDIUM
+          exit-code: "0"
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-iac.sarif
+          category: trivy-iac
+
+  trivy-secrets:
+    name: Trivy Secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret
+          format: sarif
+          output: trivy-secrets.sarif
+          exit-code: "0"
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-secrets.sarif
+          category: trivy-secrets
+
+  kubesec:
+    name: Kubesec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Kubesec
+        run: |
+          curl -sSL https://github.com/controlplaneio/kubesec/releases/download/v2.14.0/kubesec_linux_amd64.tar.gz | tar xz
+          chmod +x kubesec
+
+      - name: Scan
+        run: |
+          for f in $(find deploy/manifests -name "*.yaml" ! -name "kustomization.yaml" ! -name "values.yaml" ! -name "app.yaml"); do
+            ./kubesec scan "$f" 2>/dev/null | head -30 || true
+          done

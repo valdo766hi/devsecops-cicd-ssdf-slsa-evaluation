@@ -1,0 +1,55 @@
+name: Validate
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  yaml-lint:
+    name: YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install yamllint
+      - run: yamllint -d relaxed deploy/manifests/ argocd/ || true
+
+  kustomize:
+    name: Kustomize Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: imranismail/setup-kustomize@v2
+      - name: Validate
+        run: |
+          for dir in $(find deploy/manifests -name "kustomization.yaml" -exec dirname {} \;); do
+            echo "Building: $dir"
+            kustomize build "$dir" > /dev/null || echo "Failed: $dir"
+          done
+
+  helm:
+    name: Helm Values
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate YAML syntax
+        run: |
+          for f in $(find deploy/manifests -name "values.yaml"); do
+            python3 -c "import yaml; yaml.safe_load(open('$f'))" || exit 1
+          done
+
+  argocd-apps:
+    name: ArgoCD Apps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate app.yaml
+        run: |
+          for app in $(find deploy/manifests -name "app.yaml"); do
+            name=$(python3 -c "import yaml; print(yaml.safe_load(open('$app')).get('name',''))" 2>/dev/null)
+            ns=$(python3 -c "import yaml; print(yaml.safe_load(open('$app')).get('namespace',''))" 2>/dev/null)
+            if [ -z "$name" ] || [ -z "$ns" ]; then
+              echo "INVALID: $app"
+              exit 1
+            fi
+            echo "VALID: $name ($ns)"
+          done

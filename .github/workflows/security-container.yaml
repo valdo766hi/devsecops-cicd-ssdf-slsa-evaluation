@@ -1,0 +1,63 @@
+name: Security - Container Scan
+
+on:
+  schedule:
+    - cron: "0 0 * * 0"  # Weekly on Sunday
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  REGISTRY_USER: ${{ github.repository_owner }}
+
+jobs:
+  scan-infra:
+    name: Scan Infrastructure Images
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - ghcr.io/emberstack/kubernetes-reflector:10.0.3
+          - stakater/reloader:v1.2.1
+          - quay.io/argoproj/argocd:v2.13.3
+          - docker.io/istio/pilot:1.24.2
+          - aquasec/trivy-operator:0.24.1
+          - ghcr.io/kyverno/kyverno:v1.13.4
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull image
+        run: docker pull ${{ matrix.image }} || true
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ matrix.image }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+  scan-crapi:
+    name: Scan crAPI Images
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - crapi/crapi-identity:latest
+          - crapi/crapi-community:latest
+          - crapi/crapi-workshop:latest
+          - crapi/crapi-web:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull image
+        run: docker pull ${{ matrix.image }} || true
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ matrix.image }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "0"

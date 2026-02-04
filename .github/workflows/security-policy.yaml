@@ -1,0 +1,88 @@
+name: Security - Policy Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  kyverno:
+    name: Kyverno
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Kyverno CLI
+        run: |
+          curl -LO https://github.com/kyverno/kyverno/releases/download/v1.13.4/kyverno-cli_v1.13.4_linux_x86_64.tar.gz
+          tar -xvf kyverno-cli_v1.13.4_linux_x86_64.tar.gz
+          sudo mv kyverno /usr/local/bin/
+
+      - name: Create policies
+        run: |
+          mkdir -p policies
+          cat > policies/disallow-privileged.yaml << 'EOF'
+          apiVersion: kyverno.io/v1
+          kind: ClusterPolicy
+          metadata:
+            name: disallow-privileged
+          spec:
+            validationFailureAction: Enforce
+            rules:
+            - name: deny-privileged
+              match:
+                any:
+                - resources:
+                    kinds:
+                    - Pod
+              validate:
+                message: "Privileged containers not allowed"
+                pattern:
+                  spec:
+                    containers:
+                    - securityContext:
+                        privileged: "!true"
+          EOF
+
+      - name: Run Kyverno
+        run: |
+          for f in $(find deploy/manifests -name "*.yaml" ! -name "kustomization.yaml" ! -name "values.yaml" ! -name "app.yaml"); do
+            kyverno apply policies/ --resource "$f" 2>/dev/null || true
+          done
+
+  conftest:
+    name: OPA Conftest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Conftest
+        run: |
+          VERSION=$(curl -s https://api.github.com/repos/open-policy-agent/conftest/releases/latest | grep tag_name | cut -d '"' -f 4 | sed 's/v//')
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${VERSION}/conftest_${VERSION}_Linux_x86_64.tar.gz" | tar xz
+
+      - name: Create policies
+        run: |
+          mkdir -p policy
+          cat > policy/main.rego << 'EOF'
+          package main
+
+          deny[msg] {
+            input.kind == "Deployment"
+            container := input.spec.template.spec.containers[_]
+            container.securityContext.privileged == true
+            msg = sprintf("Container %s should not be privileged", [container.name])
+          }
+
+          warn[msg] {
+            input.kind == "Deployment"
+            container := input.spec.template.spec.containers[_]
+            not container.resources.limits
+            msg = sprintf("Container %s should have resource limits", [container.name])
+          }
+          EOF
+
+      - name: Run Conftest
+        run: |
+          for f in $(find deploy/manifests -name "*.yaml" ! -name "kustomization.yaml" ! -name "values.yaml" ! -name "app.yaml"); do
+            ./conftest test "$f" --policy policy/ 2>/dev/null || true
+          done
