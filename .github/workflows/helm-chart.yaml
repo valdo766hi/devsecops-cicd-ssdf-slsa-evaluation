@@ -1,0 +1,97 @@
+name: Publish Helm Chart
+
+on:
+  push:
+    branches: [f/create-the-ci-for-slsa-evaluation]
+    paths:
+      - "charts/crapi/**"
+      - ".github/workflows/helm-chart.yaml"
+    # tags: ["v*"]
+    # Enable tags when ready to publish releases.
+
+env:
+  REGISTRY: ghcr.io
+  CHART_NAME: crapi-helm
+  CHART_PATH: charts/crapi
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      chart: ${{ steps.filter.outputs.chart }}
+      workflow: ${{ steps.filter.outputs.workflow }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            chart:
+              - 'charts/crapi/**'
+            workflow:
+              - '.github/workflows/helm-chart.yaml'
+
+  check:
+    name: Lint and Scan
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.chart == 'true' || needs.changes.outputs.workflow == 'true'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm lint
+        run: helm lint "$CHART_PATH"
+
+      - name: Helm template
+        run: helm template "$CHART_PATH" --values "$CHART_PATH/values.yaml" > /tmp/crapi-rendered.yaml
+
+      - name: Trivy config scan (Helm)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: ${{ env.CHART_PATH }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          args: --helm-values ${{ env.CHART_PATH }}/values.yaml
+
+  publish:
+    name: Package and Push
+    runs-on: ubuntu-latest
+    needs: [changes, check]
+    if: needs.changes.outputs.chart == 'true' && needs.changes.outputs.workflow != 'true'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Package chart
+        run: helm package "$CHART_PATH" --destination dist/
+
+      - name: Login to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Push chart
+        run: helm push dist/*.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.CHART_NAME }}
+
+      - name: Summary
+        run: |
+          echo "## Helm Chart Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Chart:** ${{ env.CHART_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry:** oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.CHART_NAME }}" >> $GITHUB_STEP_SUMMARY
