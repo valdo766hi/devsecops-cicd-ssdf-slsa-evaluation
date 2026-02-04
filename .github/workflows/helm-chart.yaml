@@ -69,6 +69,9 @@ jobs:
       - name: Package chart
         run: |
           CHART_VERSION="${GITHUB_REF_NAME#crapi-}"
+          if [[ "$CHART_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+rc[0-9]+$ ]]; then
+            CHART_VERSION="${CHART_VERSION/rc/-rc}"
+          fi
           helm package "$CHART_PATH" --destination dist/ --version "$CHART_VERSION" --app-version "$CHART_VERSION"
 
       - name: Login to GitHub Container Registry
