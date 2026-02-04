@@ -67,7 +67,9 @@ jobs:
         uses: azure/setup-helm@v4
 
       - name: Package chart
-        run: helm package "$CHART_PATH" --destination dist/
+        run: |
+          CHART_VERSION="${GITHUB_REF_NAME#crapi-}"
+          helm package "$CHART_PATH" --destination dist/ --version "$CHART_VERSION" --app-version "$CHART_VERSION"
 
       - name: Login to GitHub Container Registry
         run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
