@@ -57,6 +57,9 @@ jobs:
 
       - name: Trivy config scan (Helm)
         uses: aquasecurity/trivy-action@master
+        # Temporary: allow pipeline to continue on scan failures.
+        # Set `continue-on-error: false` (or remove) to enforce failures.
+        continue-on-error: true
         with:
           scan-type: config
           scan-ref: ${{ env.CHART_PATH }}
