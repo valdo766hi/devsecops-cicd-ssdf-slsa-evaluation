@@ -72,7 +72,10 @@ jobs:
     name: Package and Push
     runs-on: ubuntu-latest
     needs: [changes, check]
-    if: needs.changes.outputs.chart == 'true' && needs.changes.outputs.workflow != 'true'
+    # Temporary: allow publish even when workflow changes.
+    # To disable publish on workflow updates, add:
+    # && needs.changes.outputs.workflow != 'true'
+    if: needs.changes.outputs.chart == 'true'
     permissions:
       contents: read
       packages: write
