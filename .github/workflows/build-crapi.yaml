@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, f/create-the-ci-for-slsa-evaluation]
     paths:
-      - "apps/crapi/services/**"
+      - "apps/crapi/**"
       - ".github/workflows/build-crapi.yaml"
   workflow_dispatch:
     inputs:
@@ -73,18 +73,46 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  helm:
+    name: Push Helm Chart
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Login to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Package Helm chart
+        run: helm package apps/crapi/deploy/helm -d /tmp
+
+      - name: Push Helm chart
+        run: helm push /tmp/crapi-*.tgz oci://ghcr.io/${{ github.repository_owner }}/crapi-helm
+
   summary:
     name: Build Summary
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, helm]
     steps:
       - name: Summary
         run: |
-          echo "## crAPI Images Built" >> $GITHUB_STEP_SUMMARY
+          echo "## crAPI Build Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Container Images" >> $GITHUB_STEP_SUMMARY
           echo "| Image | Registry |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|----------|" >> $GITHUB_STEP_SUMMARY
           echo "| crapi-identity | ghcr.io/${{ github.repository_owner }}/crapi-identity |" >> $GITHUB_STEP_SUMMARY
           echo "| crapi-community | ghcr.io/${{ github.repository_owner }}/crapi-community |" >> $GITHUB_STEP_SUMMARY
           echo "| crapi-workshop | ghcr.io/${{ github.repository_owner }}/crapi-workshop |" >> $GITHUB_STEP_SUMMARY
           echo "| crapi-web | ghcr.io/${{ github.repository_owner }}/crapi-web |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Helm Chart" >> $GITHUB_STEP_SUMMARY
+          echo "| Chart | Registry |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| crapi | oci://ghcr.io/${{ github.repository_owner }}/crapi-helm/crapi |" >> $GITHUB_STEP_SUMMARY
