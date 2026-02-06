@@ -10,9 +10,9 @@ labels:
   app.kubernetes.io/part-of: infrastructure
   app.kubernetes.io/component: crapi
 sources:
-  - repoURL: oci://ghcr.io/valdo766hi/crapi-helm
-    chart: crapi
-    targetRevision: 0.1.5-rc0
+  - repoURL: https://github.com/OWASP/crAPI.git
+    targetRevision: develop
+    path: deploy/helm
     helm:
       releaseName: crapi
       valueFiles:
