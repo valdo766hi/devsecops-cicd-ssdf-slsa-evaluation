@@ -3,14 +3,19 @@ name: Publish Helm Chart
 on:
   push:
     tags: ["crapi-*"]
-    # Demo mode: also run checks on pushes to this branch.
-    # To restrict to tag-only publishes later, remove the branch below.
+    # Best practice: publish only from tags (and run PR checks on pull_request).
+    # Demo mode: also run checks on branch pushes.
+    # To restrict later: remove the branch below.
     branches: [f/create-the-ci-for-slsa-evaluation]
   pull_request:
     branches: [main]
     paths:
       - "charts/crapi/**"
       - ".github/workflows/helm-chart.yaml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
@@ -101,7 +106,7 @@ jobs:
           PY
 
   pr-comment:
-    name: PR Comment (report only)
+    name: PR Comment
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     needs: [check]
@@ -109,6 +114,18 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      - name: Resolve job link
+        id: jobs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run_id = process.env.GITHUB_RUN_ID;
+            const { owner, repo } = context.repo;
+            const res = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: Number(run_id) });
+            const jobs = res.data.jobs || [];
+            const j = jobs.find(j => j.name === 'Lint and Scan');
+            core.setOutput('check', j ? j.html_url : '');
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -117,6 +134,8 @@ jobs:
 
       - name: Build comment body
         id: body
+        env:
+          CHECK_JOB_URL: ${{ steps.jobs.outputs.check }}
         run: |
           python3 - <<'PY' > comment.md
           import os
@@ -132,21 +151,19 @@ jobs:
             return "\n".join(lines)
 
           repo = os.environ.get('GITHUB_REPOSITORY', '')
-          run_id = os.environ.get('GITHUB_RUN_ID', '')
-          run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if repo and run_id else "(unknown)"
-          code_scanning_url = f"https://github.com/{repo}/security/code-scanning" if repo else "(unknown)"
+          job_url = os.environ.get('CHECK_JOB_URL', '')
+          code_scanning_url = f"https://github.com/{repo}/security/code-scanning" if repo else ""
 
-          print("## Publish Helm Chart / Lint and Scan (report only)")
-          print("")
-          print(f"- Actions run: {run_url}")
-          print(f"- SARIF uploaded to Code Scanning: {code_scanning_url}")
-          print("- Demo mode: pipeline is non-blocking")
-          print("- To enforce later: set `continue-on-error: false` and keep Trivy `--exit-code 1` with `--severity CRITICAL,HIGH`")
+          print("## Trivy Helm Misconfiguration Scan")
+          if job_url:
+            print(f"Job: {job_url}")
+          if code_scanning_url:
+            print(f"Code Scanning (SARIF): {code_scanning_url}")
           print("")
 
-          print("<details><summary>Trivy (table)</summary>\n")
+          print("<details><summary>Result (table)</summary>\n")
           p = os.path.join('artifacts', 'trivy-helm-table.txt')
-          print("```\n" + read_truncated(p) + "\n```")
+          print("```text\n" + read_truncated(p) + "\n```")
           print("\n</details>")
           PY
           {

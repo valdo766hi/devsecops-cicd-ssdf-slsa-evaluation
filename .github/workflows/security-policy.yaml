@@ -3,10 +3,15 @@ name: Security - Policy Check
 on:
   pull_request:
     branches: [main]
-  # Demo mode: also run on pushes to this branch.
-  # To restrict to PR-only later, remove the branch below.
   push:
+    # Best practice: limit push-triggered checks to `main` to avoid duplicates.
+    # Demo mode: keep the branch below while you need branch push runs.
+    # To restrict later: change to `branches: [main]`.
     branches: [main, f/create-the-ci-for-slsa-evaluation]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   kyverno:
@@ -140,7 +145,7 @@ jobs:
           echo "- Artifact: conftest-reports" >> "$GITHUB_STEP_SUMMARY"
 
   pr-comment:
-    name: PR Comment (report only)
+    name: PR Comment
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     needs: [kyverno, conftest]
@@ -148,6 +153,20 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      - name: Resolve job links
+        id: jobs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run_id = process.env.GITHUB_RUN_ID;
+            const { owner, repo } = context.repo;
+            const res = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: Number(run_id) });
+            const jobs = res.data.jobs || [];
+            const ky = jobs.find(j => j.name === 'Kyverno');
+            const cf = jobs.find(j => j.name === 'OPA Conftest');
+            core.setOutput('kyverno', ky ? ky.html_url : '');
+            core.setOutput('conftest', cf ? cf.html_url : '');
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -155,6 +174,9 @@ jobs:
 
       - name: Build comment body
         id: body
+        env:
+          KYVERNO_JOB_URL: ${{ steps.jobs.outputs.kyverno }}
+          CONFTEST_JOB_URL: ${{ steps.jobs.outputs.conftest }}
         run: |
           python3 - <<'PY' > comment.md
           import os
@@ -169,26 +191,23 @@ jobs:
               return "\n".join(lines[:max_lines] + [f"... (truncated, {len(lines)} lines total)"])
             return "\n".join(lines)
 
-          repo = os.environ.get('GITHUB_REPOSITORY', '')
-          run_id = os.environ.get('GITHUB_RUN_ID', '')
-          run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if repo and run_id else "(unknown)"
+          ky_job = os.environ.get('KYVERNO_JOB_URL', '')
+          cf_job = os.environ.get('CONFTEST_JOB_URL', '')
 
-          print("## Security - Policy Check (report only)")
-          print("")
-          print(f"- Actions run: {run_url}")
-          print("- Demo mode: pipeline is non-blocking")
-          print("- To enforce later: remove `continue-on-error: true` from Kyverno/Conftest steps")
-          print("")
+          def section(title, job_url, details_title, body_text):
+            print(f"## {title}")
+            if job_url:
+              print(f"Job: {job_url}")
+            print("")
+            print(f"<details><summary>{details_title}</summary>\n")
+            print("```text\n" + body_text + "\n```")
+            print("\n</details>\n")
 
-          print("<details><summary>Kyverno output (first 120 lines)</summary>\n")
           p = os.path.join('artifacts', 'kyverno-reports', 'kyverno-report.txt')
-          print("```\n" + read_truncated(p) + "\n```")
-          print("\n</details>\n")
+          section('Kyverno Policy Check', ky_job, 'Result (first 120 lines)', read_truncated(p))
 
-          print("<details><summary>Conftest output (first 120 lines)</summary>\n")
           p = os.path.join('artifacts', 'conftest-reports', 'conftest-report.txt')
-          print("```\n" + read_truncated(p) + "\n```")
-          print("\n</details>")
+          section('OPA Conftest Policy Check', cf_job, 'Result (first 120 lines)', read_truncated(p))
           PY
           {
             echo 'comment<<EOF'

@@ -2,6 +2,9 @@ name: Build crAPI Images
 
 on:
   push:
+    # Best practice: limit push-triggered builds to `main`.
+    # Demo mode: keep the branch below while you need branch push runs.
+    # To restrict later: change to `branches: [main]`.
     branches: [main, f/create-the-ci-for-slsa-evaluation]
     paths:
       - "apps/crapi/services/**"
@@ -21,6 +24,10 @@ on:
 env:
   REGISTRY: ghcr.io
   REPO_OWNER: ${{ github.repository_owner }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -155,42 +162,3 @@ jobs:
           echo "| crapi-community | ghcr.io/${{ github.repository_owner }}/crapi-community |" >> $GITHUB_STEP_SUMMARY
           echo "| crapi-workshop | ghcr.io/${{ github.repository_owner }}/crapi-workshop |" >> $GITHUB_STEP_SUMMARY
           echo "| crapi-web | ghcr.io/${{ github.repository_owner }}/crapi-web |" >> $GITHUB_STEP_SUMMARY
-
-  pr-comment:
-    name: PR Comment (report only)
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    needs: [build, summary-pr]
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - name: Build comment body
-        id: body
-        run: |
-          python3 - <<'PY' > comment.md
-          import os
-
-          repo = os.environ.get('GITHUB_REPOSITORY', '')
-          run_id = os.environ.get('GITHUB_RUN_ID', '')
-          run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if repo and run_id else "(unknown)"
-
-          print("## Build crAPI Images (report only)")
-          print("")
-          print(f"- Actions run: {run_url}")
-          print("- PR mode: build only (no push)")
-          print("")
-          print("To restrict later:")
-          print("- Remove the `pull_request` trigger to build/push only on merges to `main`")
-          PY
-          {
-            echo 'comment<<EOF'
-            cat comment.md
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Post sticky PR comment
-        uses: marocchino/sticky-pull-request-comment@v2
-        with:
-          header: build-crapi
-          message: ${{ steps.body.outputs.comment }}

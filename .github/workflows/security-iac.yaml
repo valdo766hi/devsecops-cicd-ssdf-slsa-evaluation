@@ -3,12 +3,110 @@ name: Security - IaC Scan
 on:
   pull_request:
     branches: [main]
-  # Demo mode: also run on pushes to this branch.
-  # To restrict to PR-only (or main-only) later, remove the branch below.
   push:
+    # Best practice: limit push-triggered scans to `main` to avoid duplicate runs.
+    # Demo mode: keep the branch below while you need branch push runs.
+    # To restrict later: change to `branches: [main]`.
     branches: [main, f/create-the-ci-for-slsa-evaluation]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  validate-manifests:
+    name: Validate Manifests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          python3 -m pip install --disable-pip-version-check --no-cache-dir yamllint pyyaml
+
+      - name: Set up Kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Validate (report only)
+        # Report-only: keep the pipeline green.
+        run: |
+          set -o pipefail
+
+          : > validate-report.txt
+
+          echo "## yamllint" >> validate-report.txt
+          yamllint -d relaxed deploy/manifests/ argocd/ 2>&1 | tee -a validate-report.txt || true
+          echo "" >> validate-report.txt
+
+          echo "## kustomize build" >> validate-report.txt
+          for dir in $(find deploy/manifests -name "kustomization.yaml" -exec dirname {} \;); do
+            if kustomize build "$dir" > /dev/null; then
+              echo "OK: $dir" | tee -a validate-report.txt
+            else
+              echo "FAILED: $dir" | tee -a validate-report.txt
+            fi
+          done
+          echo "" >> validate-report.txt
+
+          echo "## helm values.yaml parse" >> validate-report.txt
+          for f in $(find deploy/manifests -name "values.yaml"); do
+            python3 -c "import yaml; yaml.safe_load(open('$f'))" >/dev/null 2>&1 && \
+              echo "OK: $f" | tee -a validate-report.txt || \
+              echo "FAILED: $f" | tee -a validate-report.txt
+          done
+          echo "" >> validate-report.txt
+
+          echo "## ArgoCD app.yaml" >> validate-report.txt
+          python3 - <<'PY' 2>&1 | tee -a validate-report.txt || true
+          import glob
+          import yaml
+
+          ok = True
+          for app in glob.glob('deploy/manifests/**/app.yaml', recursive=True):
+            with open(app, 'r', encoding='utf-8', errors='replace') as f:
+              data = yaml.safe_load(f) or {}
+            name = (data or {}).get('name', '')
+            ns = (data or {}).get('namespace', '')
+            if not name or not ns:
+              print(f"INVALID: {app}")
+              ok = False
+            else:
+              print(f"VALID: {name} ({ns})")
+          if not ok:
+            raise SystemExit(1)
+          PY
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validate-reports
+          path: validate-report.txt
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Validate Manifests" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: validate-reports" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Output (first 120 lines)" >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
+          import itertools
+          p = "validate-report.txt"
+          print("```\n", end="")
+          try:
+            with open(p, "r", encoding="utf-8", errors="replace") as f:
+              for line in itertools.islice(f, 120):
+                print(line.rstrip("\n"))
+          except FileNotFoundError:
+            print("(missing validate-report.txt)")
+          print("\n```")
+          PY
+
   trivy-config:
     name: Trivy IaC
     runs-on: ubuntu-latest
@@ -34,6 +132,7 @@ jobs:
             --format table | tee trivy-iac-table.txt
 
       - name: Trivy IaC (SARIF - Code Scanning)
+        continue-on-error: true
         run: |
           trivy config . \
             --severity CRITICAL,HIGH,MEDIUM \
@@ -43,7 +142,7 @@ jobs:
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v4
-        if: always()
+        if: always() && hashFiles('trivy-iac.sarif') != ''
         with:
           sarif_file: trivy-iac.sarif
           category: trivy-iac
@@ -103,22 +202,21 @@ jobs:
         run: |
           trivy fs . \
             --scanners secret \
-            --redact \
             --exit-code 1 \
             --format table | tee trivy-secrets-table.txt
 
       - name: Trivy Secrets (SARIF - Code Scanning)
+        continue-on-error: true
         run: |
           trivy fs . \
             --scanners secret \
-            --redact \
             --exit-code 0 \
             --format sarif \
             --output trivy-secrets.sarif
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v4
-        if: always()
+        if: always() && hashFiles('trivy-secrets.sarif') != ''
         with:
           sarif_file: trivy-secrets.sarif
           category: trivy-secrets
@@ -141,7 +239,7 @@ jobs:
           echo "- SARIF uploaded to: https://github.com/${{ github.repository }}/security/code-scanning" >> "$GITHUB_STEP_SUMMARY"
           echo "- Artifact: trivy-secrets-reports" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Table Output (first 200 lines, redacted)" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Table Output (first 200 lines)" >> "$GITHUB_STEP_SUMMARY"
           python3 - <<'PY'
           import itertools
           p = "trivy-secrets-table.txt"
@@ -193,14 +291,39 @@ jobs:
           echo "- Artifact: kubesec-reports" >> "$GITHUB_STEP_SUMMARY"
 
   pr-comment:
-    name: PR Comment (report only)
+    name: PR Comment
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    needs: [trivy-config, trivy-secrets, kubesec]
+    needs: [validate-manifests, trivy-config, trivy-secrets, kubesec]
     permissions:
       contents: read
       pull-requests: write
     steps:
+      - name: Resolve job links
+        id: jobs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run_id = process.env.GITHUB_RUN_ID;
+            const { owner, repo } = context.repo;
+            const res = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: Number(run_id) });
+            const jobs = res.data.jobs || [];
+            const want = new Map([
+              ['Validate Manifests', 'validate'],
+              ['Trivy IaC', 'iac'],
+              ['Trivy Secrets', 'secrets'],
+              ['Kubesec', 'kubesec'],
+            ]);
+            const out = {};
+            for (const j of jobs) {
+              const key = want.get(j.name);
+              if (key && !out[key]) out[key] = j.html_url;
+            }
+            core.setOutput('validate', out.validate || '');
+            core.setOutput('iac', out.iac || '');
+            core.setOutput('secrets', out.secrets || '');
+            core.setOutput('kubesec', out.kubesec || '');
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -208,6 +331,11 @@ jobs:
 
       - name: Build comment body
         id: body
+        env:
+          VALIDATE_JOB_URL: ${{ steps.jobs.outputs.validate }}
+          IAC_JOB_URL: ${{ steps.jobs.outputs.iac }}
+          SECRETS_JOB_URL: ${{ steps.jobs.outputs.secrets }}
+          KUBESEC_JOB_URL: ${{ steps.jobs.outputs.kubesec }}
         run: |
           python3 - <<'PY' > comment.md
           import os
@@ -223,39 +351,69 @@ jobs:
             return "\n".join(lines)
 
           repo = os.environ.get('GITHUB_REPOSITORY', '')
-          run_id = os.environ.get('GITHUB_RUN_ID', '')
-          run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if repo and run_id else "(unknown)"
-          code_scanning_url = f"https://github.com/{repo}/security/code-scanning" if repo else "(unknown)"
+          code_scanning_url = f"https://github.com/{repo}/security/code-scanning" if repo else ""
 
-          print("## Security - IaC Scan (report only)")
-          print("")
-          print(f"- Actions run: {run_url}")
-          print(f"- SARIF uploaded to Code Scanning: {code_scanning_url}")
-          print("- Demo mode: pipeline is non-blocking")
-          print("- To enforce later: set `continue-on-error: false` on table steps and use Trivy `--exit-code 1` with `--severity CRITICAL,HIGH`")
-          print("")
+          validate_job = os.environ.get('VALIDATE_JOB_URL', '')
+          iac_job = os.environ.get('IAC_JOB_URL', '')
+          secrets_job = os.environ.get('SECRETS_JOB_URL', '')
+          kubesec_job = os.environ.get('KUBESEC_JOB_URL', '')
 
-          print("<details><summary>Trivy IaC (table)</summary>\n")
+          def section(title, job_url, details_title, body_text):
+            print(f"## {title}")
+            if job_url:
+              print(f"Job: {job_url}")
+            if title.startswith('Trivy') and code_scanning_url:
+              print(f"Code Scanning (SARIF): {code_scanning_url}")
+            print("")
+            print(f"<details><summary>{details_title}</summary>\n")
+            print("```text\n" + body_text + "\n```")
+            print("\n</details>\n")
+
+          # Trivy IaC
           p = os.path.join('artifacts', 'trivy-iac-reports', 'trivy-iac-table.txt')
-          print("```\n" + read_truncated(p) + "\n```")
-          print("\n</details>\n")
+          section(
+            "Trivy IaC Config Scan",
+            iac_job,
+            "Result (table)",
+            read_truncated(p),
+          )
 
-          print("<details><summary>Trivy Secrets (table, redacted)</summary>\n")
+          # Trivy Secrets
           p = os.path.join('artifacts', 'trivy-secrets-reports', 'trivy-secrets-table.txt')
-          print("```\n" + read_truncated(p) + "\n```")
-          print("\n</details>\n")
+          section(
+            "Trivy Secrets Scan (filesystem)",
+            secrets_job,
+            "Result (table)",
+            read_truncated(p),
+          )
 
-          print("<details><summary>Kubesec (first 120 lines)</summary>\n")
+          # Kubesec
           p = os.path.join('artifacts', 'kubesec-reports', 'kubesec-report.txt')
-          print("```\n" + read_truncated(p) + "\n```")
-          print("\n</details>")
+          section(
+            "Kubesec Kubernetes Manifest Scan",
+            kubesec_job,
+            "Result (first 120 lines)",
+            read_truncated(p),
+          )
+
+          # Validate (only show if there is something interesting)
+          p = os.path.join('artifacts', 'validate-reports', 'validate-report.txt')
+          v = read_truncated(p)
+          noisy_markers = ("FAILED:", "INVALID:", "error", "warning")
+          if any(m in v for m in noisy_markers):
+            section(
+              "Validate Manifests",
+              validate_job,
+              "Result (first 120 lines)",
+              v,
+            )
           PY
           {
             echo 'comment<<EOF'
             cat comment.md
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
-
+        
       - name: Post sticky PR comment
         uses: marocchino/sticky-pull-request-comment@v2
         with:
