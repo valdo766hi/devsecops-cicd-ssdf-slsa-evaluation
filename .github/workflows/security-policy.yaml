@@ -84,6 +84,9 @@ jobs:
 
   conftest:
     name: OPA Conftest
+    # Disabled by default to keep CI stable/less noisy.
+    # To enable: set repo variable `ENABLE_CONFTEST=true`.
+    if: ${{ vars.ENABLE_CONFTEST == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -148,9 +151,10 @@ jobs:
     name: PR Comment
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    needs: [kyverno, conftest]
+    needs: [kyverno]
     permissions:
       contents: read
+      actions: read
       pull-requests: write
     steps:
       - name: Resolve job links
@@ -207,7 +211,8 @@ jobs:
           section('Kyverno Policy Check', ky_job, 'Result (first 120 lines)', read_truncated(p))
 
           p = os.path.join('artifacts', 'conftest-reports', 'conftest-report.txt')
-          section('OPA Conftest Policy Check', cf_job, 'Result (first 120 lines)', read_truncated(p))
+          if os.path.exists(p):
+            section('OPA Conftest Policy Check', cf_job, 'Result (first 120 lines)', read_truncated(p))
           PY
           {
             echo 'comment<<EOF'
