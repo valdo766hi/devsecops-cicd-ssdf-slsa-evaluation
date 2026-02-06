@@ -1,20 +1,24 @@
 name: SLSA Provenance and Supply Chain Security
 
 on:
-  push:
+  pull_request:
     branches: [main]
+  push:
+    # Demo mode: also run on pushes to this branch.
+    # To restrict to main-only later, remove the branch below.
+    branches: [main, f/create-the-ci-for-slsa-evaluation]
   release:
     types: [published]
 
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 jobs:
   provenance:
     name: Generate SLSA Provenance
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -101,12 +105,17 @@ jobs:
     name: Dependency Review
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Dependency Review
         uses: actions/dependency-review-action@v4
+        # Demo mode: do not block the pipeline.
+        # To enforce later: remove `continue-on-error: true`.
+        continue-on-error: true
         with:
           fail-on-severity: high
           allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause
@@ -115,6 +124,8 @@ jobs:
     name: Generate Attestations
     runs-on: ubuntu-latest
     needs: [provenance]
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -148,6 +159,8 @@ jobs:
   ssdf-compliance:
     name: SSDF Compliance Check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -186,3 +199,46 @@ jobs:
           echo "| RV.1.1 - Vulnerability identification | PASS - Trivy Operator |" >> $GITHUB_STEP_SUMMARY
           echo "| RV.1.2 - Vulnerability assessment | PASS |" >> $GITHUB_STEP_SUMMARY
           echo "| RV.2.1 - Vulnerability remediation | PASS |" >> $GITHUB_STEP_SUMMARY
+
+  pr-comment:
+    name: PR Comment (report only)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [provenance, dependency-review, attestation, ssdf-compliance]
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Build comment body
+        id: body
+        run: |
+          python3 - <<'PY' > comment.md
+          import os
+
+          repo = os.environ.get('GITHUB_REPOSITORY', '')
+          run_id = os.environ.get('GITHUB_RUN_ID', '')
+          sha = os.environ.get('GITHUB_SHA', '')
+          run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if repo and run_id else "(unknown)"
+
+          print("## SLSA Provenance and Supply Chain Security (report only)")
+          print("")
+          print(f"- Actions run: {run_url}")
+          print(f"- Commit: `{sha}`")
+          print("- Provenance artifact: `slsa-provenance` (see run artifacts)")
+          print("- Demo mode: non-blocking")
+          print("")
+          print("Notes:")
+          print("- Running on PR is useful for visibility; in stricter mode you may want provenance/signing only on `push` to `main` and releases")
+          print("- To restrict later: remove the `pull_request` trigger and the demo branch from `push.branches`")
+          PY
+          {
+            echo 'comment<<EOF'
+            cat comment.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post sticky PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: slsa-provenance
+          message: ${{ steps.body.outputs.comment }}

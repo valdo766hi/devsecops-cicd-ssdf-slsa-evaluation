@@ -3,11 +3,17 @@ name: Security - Policy Check
 on:
   pull_request:
     branches: [main]
+  # Demo mode: also run on pushes to this branch.
+  # To restrict to PR-only later, remove the branch below.
+  push:
+    branches: [main, f/create-the-ci-for-slsa-evaluation]
 
 jobs:
   kyverno:
     name: Kyverno
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -44,14 +50,38 @@ jobs:
           EOF
 
       - name: Run Kyverno
+        # Demo mode: do not block the pipeline.
+        # To enforce later: remove `continue-on-error: true`.
+        continue-on-error: true
         run: |
+          set -o pipefail
+          : > kyverno-report.txt
           for f in $(find deploy/manifests -name "*.yaml" ! -name "kustomization.yaml" ! -name "values.yaml" ! -name "app.yaml"); do
-            kyverno apply policies/ --resource "$f" 2>/dev/null || true
+            echo "===== $f =====" | tee -a kyverno-report.txt
+            kyverno apply policies/ --resource "$f" 2>&1 | tee -a kyverno-report.txt || true
+            echo "" >> kyverno-report.txt
           done
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kyverno-reports
+          path: kyverno-report.txt
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Kyverno (report only)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: kyverno-reports" >> "$GITHUB_STEP_SUMMARY"
 
   conftest:
     name: OPA Conftest
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -82,7 +112,92 @@ jobs:
           EOF
 
       - name: Run Conftest
+        # Demo mode: do not block the pipeline.
+        # To enforce later: remove `continue-on-error: true`.
+        continue-on-error: true
         run: |
+          set -o pipefail
+          : > conftest-report.txt
           for f in $(find deploy/manifests -name "*.yaml" ! -name "kustomization.yaml" ! -name "values.yaml" ! -name "app.yaml"); do
-            ./conftest test "$f" --policy policy/ 2>/dev/null || true
+            echo "===== $f =====" | tee -a conftest-report.txt
+            ./conftest test "$f" --policy policy/ 2>&1 | tee -a conftest-report.txt || true
+            echo "" >> conftest-report.txt
           done
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conftest-reports
+          path: conftest-report.txt
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## OPA Conftest (report only)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: conftest-reports" >> "$GITHUB_STEP_SUMMARY"
+
+  pr-comment:
+    name: PR Comment (report only)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [kyverno, conftest]
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Build comment body
+        id: body
+        run: |
+          python3 - <<'PY' > comment.md
+          import os
+
+          def read_truncated(path, max_lines=120):
+            try:
+              with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                lines = f.read().splitlines()
+            except FileNotFoundError:
+              return f"(missing: {path})"
+            if len(lines) > max_lines:
+              return "\n".join(lines[:max_lines] + [f"... (truncated, {len(lines)} lines total)"])
+            return "\n".join(lines)
+
+          repo = os.environ.get('GITHUB_REPOSITORY', '')
+          run_id = os.environ.get('GITHUB_RUN_ID', '')
+          run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if repo and run_id else "(unknown)"
+
+          print("## Security - Policy Check (report only)")
+          print("")
+          print(f"- Actions run: {run_url}")
+          print("- Demo mode: pipeline is non-blocking")
+          print("- To enforce later: remove `continue-on-error: true` from Kyverno/Conftest steps")
+          print("")
+
+          print("<details><summary>Kyverno output (first 120 lines)</summary>\n")
+          p = os.path.join('artifacts', 'kyverno-reports', 'kyverno-report.txt')
+          print("```\n" + read_truncated(p) + "\n```")
+          print("\n</details>\n")
+
+          print("<details><summary>Conftest output (first 120 lines)</summary>\n")
+          p = os.path.join('artifacts', 'conftest-reports', 'conftest-report.txt')
+          print("```\n" + read_truncated(p) + "\n```")
+          print("\n</details>")
+          PY
+          {
+            echo 'comment<<EOF'
+            cat comment.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post sticky PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: security-policy-check
+          message: ${{ steps.body.outputs.comment }}

@@ -1,13 +1,19 @@
 name: SBOM Generation
 
 on:
-  push:
+  pull_request:
     branches: [main]
+  push:
+    # Demo mode: also run on pushes to this branch.
+    # To restrict to main-only later, remove the branch below.
+    branches: [main, f/create-the-ci-for-slsa-evaluation]
 
 jobs:
   generate:
     name: Generate SBOM
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -25,3 +31,51 @@ jobs:
           name: sbom-${{ github.sha }}
           path: sbom.json
           retention-days: 90
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## SBOM (CycloneDX)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: sbom-${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+
+  pr-comment:
+    name: PR Comment (report only)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [generate]
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Build comment body
+        id: body
+        run: |
+          python3 - <<'PY' > comment.md
+          import os
+
+          repo = os.environ.get('GITHUB_REPOSITORY', '')
+          run_id = os.environ.get('GITHUB_RUN_ID', '')
+          sha = os.environ.get('GITHUB_SHA', '')
+          run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if repo and run_id else "(unknown)"
+
+          print("## SBOM Generation (report only)")
+          print("")
+          print(f"- Actions run: {run_url}")
+          print(f"- Commit: `{sha}`")
+          print(f"- Artifact: `sbom-{sha}`")
+          print("")
+          print("To restrict later:")
+          print("- Remove the `pull_request` trigger and the demo branch from `push.branches`")
+          PY
+          {
+            echo 'comment<<EOF'
+            cat comment.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post sticky PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: sbom-generation
+          message: ${{ steps.body.outputs.comment }}

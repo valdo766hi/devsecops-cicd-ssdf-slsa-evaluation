@@ -3,59 +3,163 @@ name: Security - IaC Scan
 on:
   pull_request:
     branches: [main]
+  # Demo mode: also run on pushes to this branch.
+  # To restrict to PR-only (or main-only) later, remove the branch below.
+  push:
+    branches: [main, f/create-the-ci-for-slsa-evaluation]
 
 jobs:
   trivy-config:
     name: Trivy IaC
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Trivy
-        uses: aquasecurity/trivy-action@master
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
         with:
-          scan-type: config
-          scan-ref: .
-          format: sarif
-          output: trivy-iac.sarif
-          severity: CRITICAL,HIGH,MEDIUM
-          exit-code: "0"
+          version: v0.68.1
+
+      - name: Trivy IaC (table - report only)
+        # Demo mode: do not block the pipeline.
+        # To enforce later: set `continue-on-error: false` and keep `--exit-code 1`.
+        continue-on-error: true
+        run: |
+          trivy config . \
+            --severity CRITICAL,HIGH,MEDIUM \
+            --exit-code 1 \
+            --format table | tee trivy-iac-table.txt
+
+      - name: Trivy IaC (SARIF - Code Scanning)
+        run: |
+          trivy config . \
+            --severity CRITICAL,HIGH,MEDIUM \
+            --exit-code 0 \
+            --format sarif \
+            --output trivy-iac.sarif
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: trivy-iac.sarif
           category: trivy-iac
 
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-iac-reports
+          path: |
+            trivy-iac-table.txt
+            trivy-iac.sarif
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Trivy IaC (report only)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SARIF uploaded to: https://github.com/${{ github.repository }}/security/code-scanning" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: trivy-iac-reports" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Table Output (first 200 lines)" >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
+          import itertools
+          p = "trivy-iac-table.txt"
+          print("```\n", end="")
+          try:
+            with open(p, "r", encoding="utf-8", errors="replace") as f:
+              for line in itertools.islice(f, 200):
+                print(line.rstrip("\n"))
+          except FileNotFoundError:
+            print("(missing trivy-iac-table.txt)")
+          print("\n```")
+          PY
+
   trivy-secrets:
     name: Trivy Secrets
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Run Trivy
-        uses: aquasecurity/trivy-action@master
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
         with:
-          scan-type: fs
-          scan-ref: .
-          scanners: secret
-          format: sarif
-          output: trivy-secrets.sarif
-          exit-code: "0"
+          version: v0.68.1
+
+      - name: Trivy Secrets (table - report only)
+        # Demo mode: do not block the pipeline.
+        # To enforce later: set `continue-on-error: false` and keep `--exit-code 1`.
+        continue-on-error: true
+        run: |
+          trivy fs . \
+            --scanners secret \
+            --redact \
+            --exit-code 1 \
+            --format table | tee trivy-secrets-table.txt
+
+      - name: Trivy Secrets (SARIF - Code Scanning)
+        run: |
+          trivy fs . \
+            --scanners secret \
+            --redact \
+            --exit-code 0 \
+            --format sarif \
+            --output trivy-secrets.sarif
 
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: trivy-secrets.sarif
           category: trivy-secrets
 
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-secrets-reports
+          path: |
+            trivy-secrets-table.txt
+            trivy-secrets.sarif
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Trivy Secrets (report only)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SARIF uploaded to: https://github.com/${{ github.repository }}/security/code-scanning" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: trivy-secrets-reports" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Table Output (first 200 lines, redacted)" >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
+          import itertools
+          p = "trivy-secrets-table.txt"
+          print("```\n", end="")
+          try:
+            with open(p, "r", encoding="utf-8", errors="replace") as f:
+              for line in itertools.islice(f, 200):
+                print(line.rstrip("\n"))
+          except FileNotFoundError:
+            print("(missing trivy-secrets-table.txt)")
+          print("\n```")
+          PY
+
   kubesec:
     name: Kubesec
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -66,6 +170,94 @@ jobs:
 
       - name: Scan
         run: |
+          : > kubesec-report.txt
           for f in $(find deploy/manifests -name "*.yaml" ! -name "kustomization.yaml" ! -name "values.yaml" ! -name "app.yaml"); do
-            ./kubesec scan "$f" 2>/dev/null | head -30 || true
+            echo "===== $f =====" >> kubesec-report.txt
+            ./kubesec scan "$f" >> kubesec-report.txt || true
+            echo "" >> kubesec-report.txt
           done
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubesec-reports
+          path: kubesec-report.txt
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Kubesec (report only)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: kubesec-reports" >> "$GITHUB_STEP_SUMMARY"
+
+  pr-comment:
+    name: PR Comment (report only)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [trivy-config, trivy-secrets, kubesec]
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Build comment body
+        id: body
+        run: |
+          python3 - <<'PY' > comment.md
+          import os
+
+          def read_truncated(path, max_lines=120):
+            try:
+              with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                lines = f.read().splitlines()
+            except FileNotFoundError:
+              return f"(missing: {path})"
+            if len(lines) > max_lines:
+              return "\n".join(lines[:max_lines] + [f"... (truncated, {len(lines)} lines total)"])
+            return "\n".join(lines)
+
+          repo = os.environ.get('GITHUB_REPOSITORY', '')
+          run_id = os.environ.get('GITHUB_RUN_ID', '')
+          run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if repo and run_id else "(unknown)"
+          code_scanning_url = f"https://github.com/{repo}/security/code-scanning" if repo else "(unknown)"
+
+          print("## Security - IaC Scan (report only)")
+          print("")
+          print(f"- Actions run: {run_url}")
+          print(f"- SARIF uploaded to Code Scanning: {code_scanning_url}")
+          print("- Demo mode: pipeline is non-blocking")
+          print("- To enforce later: set `continue-on-error: false` on table steps and use Trivy `--exit-code 1` with `--severity CRITICAL,HIGH`")
+          print("")
+
+          print("<details><summary>Trivy IaC (table)</summary>\n")
+          p = os.path.join('artifacts', 'trivy-iac-reports', 'trivy-iac-table.txt')
+          print("```\n" + read_truncated(p) + "\n```")
+          print("\n</details>\n")
+
+          print("<details><summary>Trivy Secrets (table, redacted)</summary>\n")
+          p = os.path.join('artifacts', 'trivy-secrets-reports', 'trivy-secrets-table.txt')
+          print("```\n" + read_truncated(p) + "\n```")
+          print("\n</details>\n")
+
+          print("<details><summary>Kubesec (first 120 lines)</summary>\n")
+          p = os.path.join('artifacts', 'kubesec-reports', 'kubesec-report.txt')
+          print("```\n" + read_truncated(p) + "\n```")
+          print("\n</details>")
+          PY
+          {
+            echo 'comment<<EOF'
+            cat comment.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post sticky PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: security-iac-scan
+          message: ${{ steps.body.outputs.comment }}
