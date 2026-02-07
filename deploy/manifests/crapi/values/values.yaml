@@ -1,14 +1,5 @@
 openAIApiKey: ""
-
-# Use images from GitHub Container Registry
-identity:
-  image: ghcr.io/valdo766hi/crapi-identity
-community:
-  image: ghcr.io/valdo766hi/crapi-community
-workshop:
-  image: ghcr.io/valdo766hi/crapi-workshop
 web:
-  image: ghcr.io/valdo766hi/crapi-web
   service:
     type: ClusterIP
     nodePort: null
