@@ -1,16 +1,8 @@
 name: Security - DAST (ZAP Full Scan)
 
 on:
-  # Temporary: run on pushes to this branch to validate DAST workflow.
-  # Best practice: keep DAST on schedule + manual trigger (and optionally on push to main).
-  push:
-    branches: [feat/dast-pipeline]
-    paths:
-      - ".github/workflows/security-dast-zap.yaml"
-  pull_request:
-    branches: [main]
-    paths:
-      - ".github/workflows/security-dast-zap.yaml"
+  schedule:
+    - cron: "0 1 * * 0" # Weekly on Sunday at 01:00 UTC
   workflow_dispatch:
     inputs:
       target_url:
