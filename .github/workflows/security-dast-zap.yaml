@@ -1,0 +1,140 @@
+name: Security - DAST (ZAP Full Scan)
+
+on:
+  # Temporary: run on pushes to this branch to validate DAST workflow.
+  # Best practice: keep DAST on schedule + manual trigger (and optionally on push to main).
+  push:
+    branches: [feat/dast-pipeline]
+    paths:
+      - ".github/workflows/security-dast-zap.yaml"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/security-dast-zap.yaml"
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: "DAST target URL"
+        required: false
+        default: "https://crapi.skripsi.oryzasa.site/"
+      auth_email:
+        description: "Login email (optional)"
+        required: false
+        default: "admin@example.com"
+      auth_password:
+        description: "Login password (optional)"
+        required: false
+        default: "Admin!123"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  zap-full-scan:
+    name: ZAP Full Scan (crAPI)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set target
+        id: target
+        run: |
+          # Prefer workflow_dispatch input; otherwise use production hostname from HTTPRoute.
+          url='${{ inputs.target_url }}'
+          if [ -z "$url" ]; then
+            url='https://crapi.skripsi.oryzasa.site/'
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Acquire auth token (identity login)
+        id: auth
+        # Report-only: if auth fails, we still run unauthenticated scan.
+        continue-on-error: true
+        env:
+          TARGET_URL: ${{ steps.target.outputs.url }}
+          AUTH_EMAIL: ${{ inputs.auth_email || 'admin@example.com' }}
+          AUTH_PASSWORD: ${{ inputs.auth_password || 'Admin!123' }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.request
+          import urllib.error
+
+          target = os.environ.get('TARGET_URL', 'https://crapi.skripsi.oryzasa.site/')
+          email = os.environ.get('AUTH_EMAIL', '')
+          password = os.environ.get('AUTH_PASSWORD', '')
+          if not email or not password:
+            print('Missing credentials; skipping auth token.')
+            sys.exit(0)
+
+          login_url = target.rstrip('/') + '/identity/api/auth/login'
+          payload = json.dumps({'email': email, 'password': password}).encode('utf-8')
+          req = urllib.request.Request(
+            login_url,
+            data=payload,
+            headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
+            method='POST',
+          )
+          try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+              body = r.read().decode('utf-8', errors='replace')
+          except urllib.error.HTTPError as e:
+            body = e.read().decode('utf-8', errors='replace') if e.fp else ''
+            print(f'Login failed HTTP {e.code}: {body[:300]}')
+            sys.exit(1)
+          except Exception as e:
+            print(f'Login error: {e}')
+            sys.exit(1)
+
+          try:
+            data = json.loads(body)
+          except Exception:
+            print(f'Unexpected login response: {body[:300]}')
+            sys.exit(1)
+
+          token = data.get('token')
+          if not token:
+            print(f'No token in response: {body[:300]}')
+            sys.exit(1)
+
+          # Output for later steps
+          out_path = os.environ.get('GITHUB_OUTPUT')
+          with open(out_path, 'a', encoding='utf-8') as f:
+            f.write(f"token={token}\n")
+          print('Auth token acquired.')
+          PY
+
+      - name: ZAP Full Scan (report only)
+        # WARNING: This performs active attacks. Only scan targets you own/control.
+        uses: zaproxy/action-full-scan@v0.13.0
+        with:
+          target: ${{ steps.target.outputs.url }}
+          allow_issue_writing: false
+          fail_action: false
+          artifact_name: zap_dast_crapi
+          # Keep it bounded for CI. Adjust as needed.
+          # -m: max minutes for spidering (zap-full-scan.py)
+          cmd_options: "-m 10"
+        env:
+          # Optional auth header support (copied into the ZAP container).
+          ZAP_AUTH_HEADER: Authorization
+          ZAP_AUTH_HEADER_VALUE: ${{ steps.auth.outputs.token && format('Bearer {0}', steps.auth.outputs.token) || '' }}
+          ZAP_AUTH_HEADER_SITE: ${{ steps.target.outputs.url }}
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## ZAP DAST (Full Scan)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Target: ${{ steps.target.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Mode: full scan (active)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: zap_dast_crapi" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${{ steps.auth.outputs.token }}" ]; then
+            echo "- Auth: Bearer token (login succeeded)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Auth: none (login skipped/failed)" >> "$GITHUB_STEP_SUMMARY"
+          fi
