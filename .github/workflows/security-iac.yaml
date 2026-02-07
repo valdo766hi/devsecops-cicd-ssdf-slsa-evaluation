@@ -18,7 +18,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install tools
         run: |
@@ -112,12 +112,12 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Trivy
-        uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514
         with:
-          version: v0.68.1
+          version: v0.69.1
 
       - name: Trivy IaC (table - report only)
         # Demo mode: do not block the pipeline.
@@ -184,14 +184,14 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up Trivy
-        uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514
         with:
-          version: v0.68.1
+          version: v0.69.1
 
       - name: Trivy Secrets (table - report only)
         # Demo mode: do not block the pipeline.
@@ -257,7 +257,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Kubesec
         run: |
@@ -299,7 +299,7 @@ jobs:
     steps:
       - name: Resolve job links
         id: jobs
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const run_id = process.env.GITHUB_RUN_ID;
@@ -323,7 +323,7 @@ jobs:
             core.setOutput('kubesec', out.kubesec || '');
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: artifacts
 
