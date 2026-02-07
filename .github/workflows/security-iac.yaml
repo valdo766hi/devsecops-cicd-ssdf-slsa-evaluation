@@ -117,7 +117,7 @@ jobs:
       - name: Set up Trivy
         uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
         with:
-          version: v0.68.1
+          version: v0.69.1
 
       - name: Trivy IaC (table - report only)
         # Demo mode: do not block the pipeline.
@@ -191,7 +191,7 @@ jobs:
       - name: Set up Trivy
         uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
         with:
-          version: v0.68.1
+          version: v0.69.1
 
       - name: Trivy Secrets (table - report only)
         # Demo mode: do not block the pipeline.

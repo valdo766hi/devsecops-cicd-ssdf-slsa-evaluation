@@ -42,7 +42,7 @@ jobs:
       - name: Set up Trivy
         uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
         with:
-          version: v0.68.1
+          version: v0.69.1
 
       - name: Trivy config scan (rendered Helm manifest - table)
         # Demo mode: allow pipeline to continue on findings.
