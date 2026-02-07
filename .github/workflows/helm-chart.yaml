@@ -1,0 +1,214 @@
+name: Publish Helm Chart
+
+on:
+  push:
+    tags: ["crapi-*"]
+    # Best practice: publish only from tags (and run PR checks on pull_request).
+  pull_request:
+    branches: [main]
+    paths:
+      - "charts/crapi/**"
+      - ".github/workflows/helm-chart.yaml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  CHART_NAME: crapi-helm
+  CHART_PATH: charts/crapi
+
+jobs:
+  check:
+    name: Lint and Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm lint
+        run: helm lint "$CHART_PATH"
+
+      - name: Helm template
+        run: helm template "$CHART_PATH" --values "$CHART_PATH/values.yaml" > /tmp/crapi-rendered.yaml
+
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
+        with:
+          version: v0.68.1
+
+      - name: Trivy config scan (rendered Helm manifest - table)
+        # Demo mode: allow pipeline to continue on findings.
+        # To enforce later: set `continue-on-error: false` and keep `--exit-code 1`.
+        continue-on-error: true
+        run: |
+          trivy config /tmp/crapi-rendered.yaml \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            --format table | tee trivy-helm-table.txt
+
+      - name: Trivy config scan (rendered Helm manifest - SARIF)
+        run: |
+          trivy config /tmp/crapi-rendered.yaml \
+            --severity CRITICAL,HIGH \
+            --exit-code 0 \
+            --format sarif \
+            --output trivy-helm.sarif
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: trivy-helm.sarif
+          category: trivy-helm
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-scan-reports
+          path: |
+            /tmp/crapi-rendered.yaml
+            trivy-helm-table.txt
+            trivy-helm.sarif
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Helm Chart Scan (report only)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SARIF uploaded to: https://github.com/${{ github.repository }}/security/code-scanning" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: helm-scan-reports" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Trivy Table Output (first 200 lines)" >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
+          import itertools
+          p = "trivy-helm-table.txt"
+          print("```\n", end="")
+          try:
+            with open(p, "r", encoding="utf-8", errors="replace") as f:
+              for line in itertools.islice(f, 200):
+                print(line.rstrip("\n"))
+          except FileNotFoundError:
+            print("(missing trivy-helm-table.txt)")
+          print("\n```")
+          PY
+
+  pr-comment:
+    name: PR Comment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [check]
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Resolve job link
+        id: jobs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run_id = process.env.GITHUB_RUN_ID;
+            const { owner, repo } = context.repo;
+            const res = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: Number(run_id) });
+            const jobs = res.data.jobs || [];
+            const j = jobs.find(j => j.name === 'Lint and Scan');
+            core.setOutput('check', j ? j.html_url : '');
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: helm-scan-reports
+          path: artifacts
+
+      - name: Build comment body
+        id: body
+        env:
+          CHECK_JOB_URL: ${{ steps.jobs.outputs.check }}
+        run: |
+          python3 - <<'PY' > comment.md
+          import os
+
+          def read_truncated(path, max_lines=120):
+            try:
+              with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                lines = f.read().splitlines()
+            except FileNotFoundError:
+              return f"(missing: {path})"
+            if len(lines) > max_lines:
+              return "\n".join(lines[:max_lines] + [f"... (truncated, {len(lines)} lines total)"])
+            return "\n".join(lines)
+
+          repo = os.environ.get('GITHUB_REPOSITORY', '')
+          job_url = os.environ.get('CHECK_JOB_URL', '')
+          code_scanning_url = f"https://github.com/{repo}/security/code-scanning" if repo else ""
+
+          print("## Trivy Helm Misconfiguration Scan")
+          if job_url:
+            print(f"Job: {job_url}")
+          if code_scanning_url:
+            print(f"Code Scanning (SARIF): {code_scanning_url}")
+          print("")
+
+          print("<details><summary>Result (table)</summary>\n")
+          p = os.path.join('artifacts', 'trivy-helm-table.txt')
+          print("```text\n" + read_truncated(p) + "\n```")
+          print("\n</details>")
+          PY
+          {
+            echo 'comment<<EOF'
+            cat comment.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post sticky PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: helm-chart-scan
+          message: ${{ steps.body.outputs.comment }}
+
+  publish:
+    name: Package and Push
+    runs-on: ubuntu-latest
+    needs: [check]
+    # Only publish on tag pushes (e.g. crapi-1.2.3).
+    # Demo mode branch pushes should run the `check` job only.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/crapi-')
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Package chart
+        run: |
+          CHART_VERSION="${GITHUB_REF_NAME#crapi-}"
+          if [[ "$CHART_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+rc[0-9]+$ ]]; then
+            CHART_VERSION="${CHART_VERSION/rc/-rc}"
+          fi
+          helm package "$CHART_PATH" --destination dist/ --version "$CHART_VERSION" --app-version "$CHART_VERSION"
+
+      - name: Login to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Push chart
+        run: helm push dist/*.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.CHART_NAME }}
+
+      - name: Summary
+        run: |
+          echo "## Helm Chart Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Chart:** ${{ env.CHART_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry:** oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.CHART_NAME }}" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,311 @@
+name: Build crAPI Images
+
+on:
+  push:
+    # Best practice: limit push-triggered builds to `main`.
+    branches: [main]
+    paths:
+      - "apps/crapi/services/**"
+      - ".github/workflows/build-crapi.yaml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/crapi/services/**"
+      - ".github/workflows/build-crapi.yaml"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Image version tag"
+        required: false
+        default: "latest"
+
+env:
+  REGISTRY: ghcr.io
+  REPO_OWNER: ${{ github.repository_owner }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: identity
+            image: crapi-identity
+            context: apps/crapi/services/identity
+          - service: community
+            image: crapi-community
+            context: apps/crapi/services/community
+          - service: workshop
+            image: crapi-workshop
+            context: apps/crapi/services/workshop
+          - service: web
+            image: crapi-web
+            context: apps/crapi/services/web
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=${{ inputs.version || 'latest' }}
+            type=sha,prefix=
+
+      - name: Build (no push, load for scanning)
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: local/${{ matrix.image }}:pr-${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
+        with:
+          version: v0.68.1
+
+      - name: Trivy scan (image - table)
+        # Report-only: keep pipeline green.
+        # To enforce later: set `--exit-code 1` and choose `--severity` threshold.
+        continue-on-error: true
+        run: |
+          trivy image local/${{ matrix.image }}:pr-${{ github.sha }} \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            --format table \
+            --no-progress | tee trivy-${{ matrix.service }}.txt
+
+      - name: Upload Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-crapi-${{ matrix.service }}
+          path: trivy-${{ matrix.service }}.txt
+          retention-days: 30
+
+  build-push:
+    name: Build and Push (main/branch)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: identity
+            image: crapi-identity
+            context: apps/crapi/services/identity
+          - service: community
+            image: crapi-community
+            context: apps/crapi/services/community
+          - service: workshop
+            image: crapi-workshop
+            context: apps/crapi/services/workshop
+          - service: web
+            image: crapi-web
+            context: apps/crapi/services/web
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=${{ inputs.version || 'latest' }}
+            type=sha,prefix=
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  summary-pr:
+    name: Build Summary (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Summary
+        run: |
+          echo "## crAPI Images Built (PR mode)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Build only (no push)" >> $GITHUB_STEP_SUMMARY
+
+  summary-push:
+    name: Build Summary (push)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: build-push
+    steps:
+      - name: Summary
+        run: |
+          echo "## crAPI Images Built" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | Registry |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| crapi-identity | ghcr.io/${{ github.repository_owner }}/crapi-identity |" >> $GITHUB_STEP_SUMMARY
+          echo "| crapi-community | ghcr.io/${{ github.repository_owner }}/crapi-community |" >> $GITHUB_STEP_SUMMARY
+          echo "| crapi-workshop | ghcr.io/${{ github.repository_owner }}/crapi-workshop |" >> $GITHUB_STEP_SUMMARY
+          echo "| crapi-web | ghcr.io/${{ github.repository_owner }}/crapi-web |" >> $GITHUB_STEP_SUMMARY
+  pr-comment:
+    name: PR Comment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [build, summary-pr]
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Resolve job links
+        id: jobs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run_id = Number(process.env.GITHUB_RUN_ID);
+            const { owner, repo } = context.repo;
+            const res = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id });
+            const jobs = res.data.jobs || [];
+            const out = {};
+            for (const svc of ['identity','community','workshop','web']) {
+              const j = jobs.find(j => j.name.includes(`Build (PR) (${svc},`));
+              out[svc] = j ? j.html_url : '';
+            }
+            core.setOutput('map', JSON.stringify(out));
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Build comment body
+        id: body
+        env:
+          JOB_MAP_JSON: ${{ steps.jobs.outputs.map }}
+        run: |
+          python3 - <<'PY' > comment.md
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          job_map = {}
+          try:
+            job_map = json.loads(os.environ.get('JOB_MAP_JSON', '') or '{}')
+          except Exception:
+            job_map = {}
+
+          def parse_totals(text):
+            # Matches: Total: N (UNKNOWN: 0, LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0)
+            m = re.search(r"Total:\s*\d+\s*\(.*?HIGH:\s*(\d+).*?CRITICAL:\s*(\d+).*?\)", text, re.DOTALL)
+            if not m:
+              return None
+            return {"high": int(m.group(1)), "critical": int(m.group(2))}
+
+          def read_file(path):
+            try:
+              return Path(path).read_text(encoding='utf-8', errors='replace')
+            except FileNotFoundError:
+              return ''
+
+          def truncate_lines(text, max_lines=120):
+            lines = text.splitlines()
+            if len(lines) <= max_lines:
+              return "\n".join(lines)
+            return "\n".join(lines[:max_lines] + [f"... (truncated, {len(lines)} lines total)"])
+
+          services = ['identity', 'community', 'workshop', 'web']
+          reports = {}
+          affected = []
+
+          for svc in services:
+            p = f"artifacts/trivy-{svc}.txt"
+            # download-artifact with merge will place files at root if unique
+            if not Path(p).exists():
+              p = f"artifacts/trivy-{svc}.txt"
+            text = read_file(p)
+            if not text:
+              continue
+            reports[svc] = text
+            totals = parse_totals(text)
+            if totals and (totals['high'] > 0 or totals['critical'] > 0):
+              affected.append((svc, totals['critical'], totals['high']))
+
+          print("## Trivy Image Scan - crAPI (PR Build)")
+          print("")
+          if not reports:
+            print("No Trivy reports found in artifacts.")
+          else:
+            if affected:
+              print("Affected images (HIGH/CRITICAL):")
+              print("")
+              print("| Service | CRITICAL | HIGH | Job |")
+              print("|---|---:|---:|---|")
+              for svc, crit, high in affected:
+                job = job_map.get(svc, '')
+                job_cell = job if job else ''
+                print(f"| {svc} | {crit} | {high} | {job_cell} |")
+              print("")
+              for svc, _, _ in affected:
+                job = job_map.get(svc, '')
+                print(f"<details><summary>{svc} - Result (table)</summary>\n")
+                if job:
+                  print(f"Job: {job}\n")
+                print("```text")
+                print(truncate_lines(reports.get(svc, ''), 160))
+                print("```\n")
+                print("</details>\n")
+            else:
+              print("No HIGH/CRITICAL vulnerabilities found in scanned PR-built images.")
+          PY
+          {
+            echo 'comment<<EOF'
+            cat comment.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post sticky PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: build-crapi-trivy
+          message: ${{ steps.body.outputs.comment }}

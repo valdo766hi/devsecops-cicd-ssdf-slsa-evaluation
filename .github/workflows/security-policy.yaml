@@ -1,0 +1,225 @@
+name: Security - Policy Check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    # Best practice: limit push-triggered checks to `main` to avoid duplicates.
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kyverno:
+    name: Kyverno
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Kyverno CLI
+        run: |
+          curl -LO https://github.com/kyverno/kyverno/releases/download/v1.13.4/kyverno-cli_v1.13.4_linux_x86_64.tar.gz
+          tar -xvf kyverno-cli_v1.13.4_linux_x86_64.tar.gz
+          sudo mv kyverno /usr/local/bin/
+
+      - name: Create policies
+        run: |
+          mkdir -p policies
+          cat > policies/disallow-privileged.yaml << 'EOF'
+          apiVersion: kyverno.io/v1
+          kind: ClusterPolicy
+          metadata:
+            name: disallow-privileged
+          spec:
+            validationFailureAction: Enforce
+            rules:
+            - name: deny-privileged
+              match:
+                any:
+                - resources:
+                    kinds:
+                    - Pod
+              validate:
+                message: "Privileged containers not allowed"
+                pattern:
+                  spec:
+                    containers:
+                    - securityContext:
+                        privileged: "!true"
+          EOF
+
+      - name: Run Kyverno
+        # Demo mode: do not block the pipeline.
+        # To enforce later: remove `continue-on-error: true`.
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          : > kyverno-report.txt
+          for f in $(find deploy/manifests -name "*.yaml" ! -name "kustomization.yaml" ! -name "values.yaml" ! -name "app.yaml"); do
+            echo "===== $f =====" | tee -a kyverno-report.txt
+            kyverno apply policies/ --resource "$f" 2>&1 | tee -a kyverno-report.txt || true
+            echo "" >> kyverno-report.txt
+          done
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kyverno-reports
+          path: kyverno-report.txt
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Kyverno (report only)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: kyverno-reports" >> "$GITHUB_STEP_SUMMARY"
+
+  conftest:
+    name: OPA Conftest
+    # Disabled by default to keep CI stable/less noisy.
+    # To enable: set repo variable `ENABLE_CONFTEST=true`.
+    if: ${{ vars.ENABLE_CONFTEST == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Conftest
+        run: |
+          VERSION=$(curl -s https://api.github.com/repos/open-policy-agent/conftest/releases/latest | grep tag_name | cut -d '"' -f 4 | sed 's/v//')
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${VERSION}/conftest_${VERSION}_Linux_x86_64.tar.gz" | tar xz
+
+      - name: Create policies
+        run: |
+          mkdir -p policy
+          cat > policy/main.rego << 'EOF'
+          package main
+
+          deny[msg] {
+            input.kind == "Deployment"
+            container := input.spec.template.spec.containers[_]
+            container.securityContext.privileged == true
+            msg = sprintf("Container %s should not be privileged", [container.name])
+          }
+
+          warn[msg] {
+            input.kind == "Deployment"
+            container := input.spec.template.spec.containers[_]
+            not container.resources.limits
+            msg = sprintf("Container %s should have resource limits", [container.name])
+          }
+          EOF
+
+      - name: Run Conftest
+        # Demo mode: do not block the pipeline.
+        # To enforce later: remove `continue-on-error: true`.
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          : > conftest-report.txt
+          for f in $(find deploy/manifests -name "*.yaml" ! -name "kustomization.yaml" ! -name "values.yaml" ! -name "app.yaml"); do
+            echo "===== $f =====" | tee -a conftest-report.txt
+            ./conftest test "$f" --policy policy/ 2>&1 | tee -a conftest-report.txt || true
+            echo "" >> conftest-report.txt
+          done
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conftest-reports
+          path: conftest-report.txt
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## OPA Conftest (report only)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: conftest-reports" >> "$GITHUB_STEP_SUMMARY"
+
+  pr-comment:
+    name: PR Comment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [kyverno]
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Resolve job links
+        id: jobs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run_id = process.env.GITHUB_RUN_ID;
+            const { owner, repo } = context.repo;
+            const res = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: Number(run_id) });
+            const jobs = res.data.jobs || [];
+            const ky = jobs.find(j => j.name === 'Kyverno');
+            const cf = jobs.find(j => j.name === 'OPA Conftest');
+            core.setOutput('kyverno', ky ? ky.html_url : '');
+            core.setOutput('conftest', cf ? cf.html_url : '');
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Build comment body
+        id: body
+        env:
+          KYVERNO_JOB_URL: ${{ steps.jobs.outputs.kyverno }}
+          CONFTEST_JOB_URL: ${{ steps.jobs.outputs.conftest }}
+        run: |
+          python3 - <<'PY' > comment.md
+          import os
+
+          def read_truncated(path, max_lines=120):
+            try:
+              with open(path, 'r', encoding='utf-8', errors='replace') as f:
+                lines = f.read().splitlines()
+            except FileNotFoundError:
+              return f"(missing: {path})"
+            if len(lines) > max_lines:
+              return "\n".join(lines[:max_lines] + [f"... (truncated, {len(lines)} lines total)"])
+            return "\n".join(lines)
+
+          ky_job = os.environ.get('KYVERNO_JOB_URL', '')
+          cf_job = os.environ.get('CONFTEST_JOB_URL', '')
+
+          def section(title, job_url, details_title, body_text):
+            print(f"## {title}")
+            if job_url:
+              print(f"Job: {job_url}")
+            print("")
+            print(f"<details><summary>{details_title}</summary>\n")
+            print("```text\n" + body_text + "\n```")
+            print("\n</details>\n")
+
+          p = os.path.join('artifacts', 'kyverno-reports', 'kyverno-report.txt')
+          section('Kyverno Policy Check', ky_job, 'Result (first 120 lines)', read_truncated(p))
+
+          p = os.path.join('artifacts', 'conftest-reports', 'conftest-report.txt')
+          if os.path.exists(p):
+            section('OPA Conftest Policy Check', cf_job, 'Result (first 120 lines)', read_truncated(p))
+          PY
+          {
+            echo 'comment<<EOF'
+            cat comment.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post sticky PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: security-policy-check
+          message: ${{ steps.body.outputs.comment }}
