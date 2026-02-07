@@ -346,9 +346,19 @@ This repository implements DevSecOps practices:
 | Trivy Operator | ✅ Active |
 | Reflector | ✅ Active |
 | Reloader | ✅ Active |
-| GitHub Actions CI/CD | 📋 Planned |
-| crAPI Test Application | 📋 Planned |
-| SLSA Provenance | 📋 Planned |
+| GitHub Actions CI/CD | ✅ Active |
+| crAPI Test Application | ✅ Active |
+| SBOM Generation | ✅ Active |
+| SLSA Provenance | ✅ Active |
+
+## CI/CD Reporting
+
+Where to find the scan outputs:
+
+- PR checks: GitHub Actions logs and sticky PR comments for IaC/Helm/policy/build scans
+- SARIF results: GitHub Security 3 Code scanning (`Security` 3 `Code scanning`)
+- Artifacts: each workflow run uploads downloadable reports (table outputs and SARIF where applicable)
+- Daily container scan: GitHub Actions run summary shows an "Affected images" table
 
 ## Troubleshooting
 
