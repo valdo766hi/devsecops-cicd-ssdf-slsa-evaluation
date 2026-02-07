@@ -1,0 +1,191 @@
+name: Security - SAST (Semgrep)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/crapi/services/**"
+      - ".github/workflows/security-sast-semgrep.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/crapi/services/**"
+      - ".github/workflows/security-sast-semgrep.yaml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Semgrep
+        # For reproducibility you can pin a specific version, e.g. `semgrep==1.x.y`.
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir semgrep
+
+      - name: Semgrep scan (table output - report only)
+        # Report-only: keep the pipeline green.
+        # To enforce later: remove `continue-on-error: true` and use `--severity ERROR --exit-code 1`.
+        continue-on-error: true
+        run: |
+          semgrep scan \
+            --config p/ci \
+            --metrics=off \
+            --no-git-ignore \
+            --exclude '**/node_modules/**' \
+            --exclude '**/dist/**' \
+            --exclude '**/build/**' \
+            --exclude '**/target/**' \
+            --exclude '**/.venv/**' \
+            --exclude '**/__pycache__/**' \
+            apps/crapi/services 2>&1 | tee semgrep.txt
+
+      - name: Semgrep scan (SARIF - Code Scanning)
+        # Report-only: keep the pipeline green.
+        continue-on-error: true
+        run: |
+          semgrep scan \
+            --config p/ci \
+            --metrics=off \
+            --no-git-ignore \
+            --exclude '**/node_modules/**' \
+            --exclude '**/dist/**' \
+            --exclude '**/build/**' \
+            --exclude '**/target/**' \
+            --exclude '**/.venv/**' \
+            --exclude '**/__pycache__/**' \
+            --sarif \
+            --output semgrep.sarif \
+            apps/crapi/services
+
+      - name: Upload SARIF
+        if: always() && hashFiles('semgrep.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep-sast
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-sast-reports
+          path: |
+            semgrep.txt
+            semgrep.sarif
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Semgrep SAST (report only)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Target: apps/crapi/services" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SARIF uploaded to: https://github.com/${{ github.repository }}/security/code-scanning" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact: semgrep-sast-reports" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Output (first 160 lines)" >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
+          import itertools
+          p = 'semgrep.txt'
+          print('```\n', end='')
+          try:
+            with open(p, 'r', encoding='utf-8', errors='replace') as f:
+              for line in itertools.islice(f, 160):
+                print(line.rstrip('\n'))
+          except FileNotFoundError:
+            print('(missing semgrep.txt)')
+          print('\n```')
+          PY
+
+  pr-comment:
+    name: PR Comment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [semgrep]
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Resolve job link
+        id: jobs
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const run_id = Number(process.env.GITHUB_RUN_ID);
+            const { owner, repo } = context.repo;
+            const res = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id });
+            const jobs = res.data.jobs || [];
+            const j = jobs.find(j => j.name === 'Semgrep SAST');
+            core.setOutput('semgrep', j ? j.html_url : '');
+
+      - name: Download reports
+        uses: actions/download-artifact@v7
+        with:
+          name: semgrep-sast-reports
+          path: artifacts
+
+      - name: Build comment body
+        id: body
+        env:
+          SEMGREP_JOB_URL: ${{ steps.jobs.outputs.semgrep }}
+        run: |
+          python3 - <<'PY' > comment.md
+          import itertools
+          import os
+          from pathlib import Path
+
+          repo = os.environ.get('GITHUB_REPOSITORY', '')
+          job_url = os.environ.get('SEMGREP_JOB_URL', '')
+          code_scanning_url = f"https://github.com/{repo}/security/code-scanning" if repo else ''
+
+          p = Path('artifacts/semgrep.txt')
+          if p.exists():
+            lines = p.read_text(encoding='utf-8', errors='replace').splitlines()
+          else:
+            lines = ['(missing semgrep.txt)']
+
+          excerpt = lines[:160]
+          if len(lines) > 160:
+            excerpt.append(f"... (truncated, {len(lines)} lines total)")
+
+          print('## Semgrep SAST (apps/crapi/services)')
+          if job_url:
+            print(f"Job: {job_url}")
+          if code_scanning_url:
+            print(f"Code Scanning (SARIF): {code_scanning_url}")
+          print('')
+          print('<details><summary>Result (excerpt)</summary>\n')
+          print('```text')
+          print("\n".join(excerpt))
+          print('```\n')
+          print('</details>')
+          PY
+          {
+            echo 'comment<<EOF'
+            cat comment.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post sticky PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: sast-semgrep
+          message: ${{ steps.body.outputs.comment }}
