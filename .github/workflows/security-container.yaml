@@ -33,7 +33,7 @@ jobs:
           - aquasec/trivy-operator:0.24.1
           - ghcr.io/kyverno/kyverno:v1.13.4
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Trivy
         uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
@@ -96,7 +96,7 @@ jobs:
           - ghcr.io/${{ github.repository_owner }}/crapi-workshop:latest
           - ghcr.io/${{ github.repository_owner }}/crapi-web:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Trivy
         uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
