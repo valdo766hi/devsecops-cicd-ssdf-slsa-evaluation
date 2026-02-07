@@ -4,9 +4,6 @@ on:
   push:
     tags: ["crapi-*"]
     # Best practice: publish only from tags (and run PR checks on pull_request).
-    # Demo mode: also run checks on branch pushes.
-    # To restrict later: remove the branch below.
-    branches: [f/create-the-ci-for-slsa-evaluation]
   pull_request:
     branches: [main]
     paths:

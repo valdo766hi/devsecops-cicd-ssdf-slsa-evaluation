@@ -5,9 +5,7 @@ on:
     branches: [main]
   push:
     # Best practice: limit push-triggered scans to `main` to avoid duplicate runs.
-    # Demo mode: keep the branch below while you need branch push runs.
-    # To restrict later: change to `branches: [main]`.
-    branches: [main, f/create-the-ci-for-slsa-evaluation]
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

@@ -3,9 +3,7 @@ name: Build crAPI Images
 on:
   push:
     # Best practice: limit push-triggered builds to `main`.
-    # Demo mode: keep the branch below while you need branch push runs.
-    # To restrict later: change to `branches: [main]`.
-    branches: [main, f/create-the-ci-for-slsa-evaluation]
+    branches: [main]
     paths:
       - "apps/crapi/services/**"
       - ".github/workflows/build-crapi.yaml"

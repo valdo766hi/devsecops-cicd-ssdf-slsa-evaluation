@@ -1,13 +1,9 @@
 name: SLSA Provenance and Supply Chain Security
 
 on:
-  pull_request:
-    branches: [main]
   push:
     # Best practice: limit push-triggered jobs to `main` to avoid duplicates.
-    # Demo mode: keep the branch below while you need branch push runs.
-    # To restrict later: change to `branches: [main]`.
-    branches: [main, f/create-the-ci-for-slsa-evaluation]
+    branches: [main]
   release:
     types: [published]
 
