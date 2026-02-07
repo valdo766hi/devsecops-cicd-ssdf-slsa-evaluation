@@ -214,8 +214,13 @@ jobs:
 
       - name: Download artifacts
         uses: actions/download-artifact@v7
+        # Report-only: this job only improves PR UX.
+        # docker/build-push-action@v6 may upload extra build record artifacts (*.dockerbuild).
+        # Download only the Trivy reports needed for the comment.
+        continue-on-error: true
         with:
           path: artifacts
+          pattern: trivy-crapi-*
           merge-multiple: true
 
       - name: Build comment body
