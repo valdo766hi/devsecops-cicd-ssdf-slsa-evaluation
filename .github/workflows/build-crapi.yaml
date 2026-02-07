@@ -67,7 +67,7 @@ jobs:
             type=sha,prefix=
 
       - name: Build (no push, load for scanning)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           platforms: linux/amd64
@@ -149,7 +149,7 @@ jobs:
             type=sha,prefix=
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           push: true
@@ -214,8 +214,11 @@ jobs:
 
       - name: Download artifacts
         uses: actions/download-artifact@v7
+        # Download only the Trivy reports needed for the comment.
+        continue-on-error: true
         with:
           path: artifacts
+          pattern: trivy-crapi-*
           merge-multiple: true
 
       - name: Build comment body
