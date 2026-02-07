@@ -157,7 +157,7 @@ jobs:
     steps:
       - name: Resolve job links
         id: jobs
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const run_id = process.env.GITHUB_RUN_ID;
