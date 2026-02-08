@@ -109,6 +109,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -149,6 +150,7 @@ jobs:
             type=sha,prefix=
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -157,6 +159,31 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless OIDC)
+        # Keyless signing uses GitHub OIDC (no stored private key).
+        # To verify: cosign verify ghcr.io/<owner>/<image>@<digest>
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          echo "Digest: ${{ steps.build.outputs.digest }}"
+          cosign sign "${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}"
+
+      - name: Verify image signature (keyless OIDC)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          ref="${{ env.REGISTRY }}/${{ env.REPO_OWNER }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}"
+          identity="https://github.com/${{ github.repository }}/.github/workflows/build-crapi.yaml@${{ github.ref }}"
+          cosign verify \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-identity "$identity" \
+            "$ref"
 
   summary-pr:
     name: Build Summary (PR)
