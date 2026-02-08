@@ -185,6 +185,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -192,12 +193,21 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4
 
+      - name: Login to GitHub Container Registry (for Cosign)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Package chart
+        id: pkg
         run: |
           CHART_VERSION="${GITHUB_REF_NAME#crapi-}"
           if [[ "$CHART_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+rc[0-9]+$ ]]; then
             CHART_VERSION="${CHART_VERSION/rc/-rc}"
           fi
+          echo "chart_version=$CHART_VERSION" >> "$GITHUB_OUTPUT"
           helm package "$CHART_PATH" --destination dist/ --version "$CHART_VERSION" --app-version "$CHART_VERSION"
 
       - name: Login to GitHub Container Registry
@@ -205,6 +215,30 @@ jobs:
 
       - name: Push chart
         run: helm push dist/*.tgz oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.CHART_NAME }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign chart (keyless OIDC)
+        # Helm charts pushed to OCI can be signed as OCI artifacts.
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          ref="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.CHART_NAME }}:${{ steps.pkg.outputs.chart_version }}"
+          cosign sign "$ref"
+
+      - name: Verify chart signature (keyless OIDC)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          ref="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.CHART_NAME }}:${{ steps.pkg.outputs.chart_version }}"
+          identity="https://github.com/${{ github.repository }}/.github/workflows/helm-chart.yaml@${{ github.ref }}"
+          cosign verify \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-identity "$identity" \
+            "$ref"
 
       - name: Summary
         run: |
