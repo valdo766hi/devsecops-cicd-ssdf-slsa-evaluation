@@ -96,7 +96,7 @@ jobs:
 
       - name: Upload Trivy report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trivy-crapi-${{ matrix.service }}
           path: trivy-${{ matrix.service }}.txt

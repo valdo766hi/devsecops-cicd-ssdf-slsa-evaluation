@@ -79,7 +79,7 @@ jobs:
           echo "provenance_file=provenance.json" >> $GITHUB_OUTPUT
 
       - name: Upload provenance artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: slsa-provenance
           path: provenance.json
