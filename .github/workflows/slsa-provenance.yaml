@@ -132,7 +132,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download provenance
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: slsa-provenance
 
