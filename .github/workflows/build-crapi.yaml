@@ -240,7 +240,7 @@ jobs:
             core.setOutput('map', JSON.stringify(out));
 
       - name: Download artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         # Download only the Trivy reports needed for the comment.
         continue-on-error: true
         with:
